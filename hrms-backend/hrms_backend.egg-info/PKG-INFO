@@ -1,0 +1,12 @@
+Metadata-Version: 2.2
+Name: hrms-backend
+Version: 0.1
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: sqlalchemy
+Requires-Dist: pymysql
+Requires-Dist: pydantic
+Requires-Dist: passlib[bcrypt]
+Requires-Dist: python-multipart
+Requires-Dist: email-validator
+Dynamic: requires-dist
