@@ -14,9 +14,18 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    employee_id = Column(String, unique=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    phone = Column(String)
+    department = Column(String)
+    position = Column(String)
+    hire_date = Column(Date)
+    leave_balance = Column(Integer, default=10)  # Default 10 days leave balance
 
     # Relationships
     attendance_records = relationship("Attendance", back_populates="employee")
+    leave_requests = relationship("LeaveRequest", back_populates="employee")
 
 class Attendance(Base):
     __tablename__ = "attendance"
@@ -34,3 +43,18 @@ class Attendance(Base):
 
     # Relationships
     employee = relationship("User", back_populates="attendance_records") 
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("users.id"))
+    leave_type = Column(String)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    reason = Column(String)
+    status = Column(String, default="pending")  # pending, approved, rejected
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    employee = relationship("User", back_populates="leave_requests") 

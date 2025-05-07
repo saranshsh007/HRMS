@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -19,6 +19,7 @@ import {
   AccessTime as TimeIcon,
   TrendingUp as TrendingUpIcon,
   EventNote as EventIcon,
+  ExitToApp as ExitToAppIcon,
 } from '@mui/icons-material';
 import { Line } from 'react-chartjs-2';
 import {
@@ -83,6 +84,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const theme = useTheme();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchSummary();
@@ -100,6 +102,15 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogout = () => {
+    // Clear all stored data
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userId');
+    // Navigate back to login
+    navigate('/');
   };
 
   if (loading) {
@@ -203,19 +214,35 @@ const Dashboard = () => {
           <Typography variant="h4" component="h1" sx={{ color: 'white', fontWeight: 'bold' }}>
             Dashboard
           </Typography>
-          <Button
-            component={Link}
-            to="/users"
-            variant="contained"
-            sx={{
-              background: 'rgba(255, 255, 255, 0.2)',
-              '&:hover': {
-                background: 'rgba(255, 255, 255, 0.3)',
-              },
-            }}
-          >
-            View All Users
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              component={Link}
+              to="/users"
+              variant="contained"
+              sx={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                '&:hover': {
+                  background: 'rgba(255, 255, 255, 0.3)',
+                },
+              }}
+            >
+              View All Users
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleLogout}
+              startIcon={<ExitToAppIcon />}
+              sx={{
+                background: 'rgba(244, 67, 54, 0.2)',
+                color: 'white',
+                '&:hover': {
+                  background: 'rgba(244, 67, 54, 0.3)',
+                },
+              }}
+            >
+              Logout
+            </Button>
+          </Box>
         </Box>
 
         <Grid container spacing={3}>

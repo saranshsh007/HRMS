@@ -29,6 +29,10 @@ import PersonIcon from '@mui/icons-material/Person';
 import BadgeIcon from '@mui/icons-material/Badge';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   maxWidth: 300,
@@ -44,16 +48,130 @@ const StyledCard = styled(Card)(({ theme }) => ({
   border: '1px solid rgba(255, 255, 255, 0.2)',
 }));
 
+const departments = [
+  "Software Development",
+  "Quality Assurance",
+  "DevOps",
+  "Database Administration",
+  "Network Administration",
+  "System Administration",
+  "Security",
+  "IT Support",
+  "Project Management",
+  "Business Analysis"
+];
+
+const positions = {
+  "Software Development": [
+    "Software Engineer",
+    "Senior Software Engineer",
+    "Lead Software Engineer",
+    "Software Architect",
+    "Full Stack Developer",
+    "Frontend Developer",
+    "Backend Developer",
+    "Mobile Developer"
+  ],
+  "Quality Assurance": [
+    "QA Engineer",
+    "Senior QA Engineer",
+    "QA Lead",
+    "Test Automation Engineer",
+    "Performance Test Engineer"
+  ],
+  "DevOps": [
+    "DevOps Engineer",
+    "Senior DevOps Engineer",
+    "DevOps Lead",
+    "Site Reliability Engineer",
+    "Cloud Engineer"
+  ],
+  "Database Administration": [
+    "Database Administrator",
+    "Senior DBA",
+    "Database Developer",
+    "Data Engineer"
+  ],
+  "Network Administration": [
+    "Network Administrator",
+    "Network Engineer",
+    "Network Security Engineer",
+    "Network Architect"
+  ],
+  "System Administration": [
+    "System Administrator",
+    "Senior System Administrator",
+    "Systems Engineer",
+    "IT Operations Manager"
+  ],
+  "Security": [
+    "Security Engineer",
+    "Security Analyst",
+    "Security Architect",
+    "Information Security Officer"
+  ],
+  "IT Support": [
+    "IT Support Specialist",
+    "Help Desk Technician",
+    "Technical Support Engineer",
+    "IT Support Manager"
+  ],
+  "Project Management": [
+    "Project Manager",
+    "Program Manager",
+    "Technical Project Manager",
+    "Scrum Master"
+  ],
+  "Business Analysis": [
+    "Business Analyst",
+    "Senior Business Analyst",
+    "Technical Business Analyst",
+    "Product Owner"
+  ]
+};
+
+// Add axios interceptor for authentication
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle token expiration
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      localStorage.removeItem('token');
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userId');
+      window.location.href = '/';
+    }
+    return Promise.reject(error);
+  }
+);
+
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
+    email: '',
+    full_name: '',
+    role: 'employee',
+    password: '',
     employee_id: '',
     first_name: '',
     last_name: '',
-    email: '',
     phone: '',
     department: '',
     position: '',
@@ -61,21 +179,45 @@ const UserManagement = () => {
   });
   const [editingUserId, setEditingUserId] = useState(null);
   const [formErrors, setFormErrors] = useState({});
+  const [availablePositions, setAvailablePositions] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
+  useEffect(() => {
+    if (formData.department) {
+      setAvailablePositions(positions[formData.department] || []);
+    } else {
+      setAvailablePositions([]);
+    }
+  }, [formData.department]);
+
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/users/`);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/users/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       setUsers(response.data);
       setError(null);
     } catch (error) {
-      setError('Failed to fetch users: ' + error.message);
       console.error('Error fetching users:', error);
+      if (error.response?.status === 401) {
+        setError('Your session has expired. Please log in again.');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to access this page.');
+      } else {
+        setError('Failed to fetch users: ' + (error.response?.data?.detail || error.message));
+      }
     } finally {
       setLoading(false);
     }
@@ -91,27 +233,49 @@ const UserManagement = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setFormErrors({}); // Clear previous errors
+    setFormErrors({});
     
     try {
-      // Format the date to YYYY-MM-DD
-      const formattedData = {
-        ...formData,
-        hire_date: formData.hire_date.split('T')[0] // Remove time part if present
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Prepare data for backend
+      const backendData = {
+        email: formData.email,
+        full_name: formData.full_name,
+        role: formData.role,
+        password: formData.password,
+        employee_id: formData.employee_id,
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        phone: formData.phone,
+        department: formData.department,
+        position: formData.position,
+        hire_date: formData.hire_date
+      };
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       };
 
       if (editingUserId) {
-        await axios.put(`${API_BASE_URL}/users/${editingUserId}`, formattedData);
+        await axios.put(`${API_BASE_URL}/users/${editingUserId}`, backendData, { headers });
       } else {
-        await axios.post(`${API_BASE_URL}/users/`, formattedData);
+        await axios.post(`${API_BASE_URL}/users/`, backendData, { headers });
       }
       setShowForm(false);
       setEditingUserId(null);
       setFormData({
+        email: '',
+        full_name: '',
+        role: 'employee',
+        password: '',
         employee_id: '',
         first_name: '',
         last_name: '',
-        email: '',
         phone: '',
         department: '',
         position: '',
@@ -121,7 +285,11 @@ const UserManagement = () => {
     } catch (error) {
       console.error('Error saving user:', error.response?.data || error.message);
       
-      if (error.response?.data?.detail) {
+      if (error.response?.status === 401) {
+        setError('Your session has expired. Please log in again.');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to perform this action.');
+      } else if (error.response?.data?.detail) {
         // Handle validation errors
         if (Array.isArray(error.response.data.detail)) {
           const errors = {};
@@ -145,14 +313,17 @@ const UserManagement = () => {
   const handleEdit = (user) => {
     setEditingUserId(user.id);
     setFormData({
-      employee_id: user.employee_id,
-      first_name: user.first_name,
-      last_name: user.last_name,
       email: user.email,
-      phone: user.phone,
-      department: user.department,
-      position: user.position,
-      hire_date: user.hire_date
+      full_name: user.full_name,
+      role: user.role,
+      password: '', // Don't set password when editing
+      employee_id: user.employee_id || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      phone: user.phone || '',
+      department: user.department || '',
+      position: user.position || '',
+      hire_date: user.hire_date || new Date().toISOString().split('T')[0]
     });
     setShowForm(true);
   };
@@ -160,10 +331,26 @@ const UserManagement = () => {
   const handleDelete = async (userId) => {
     if (window.confirm('Are you sure you want to delete this user?')) {
       try {
-        await axios.delete(`${API_BASE_URL}/users/${userId}`);
+        const token = localStorage.getItem('token');
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+
+        await axios.delete(`${API_BASE_URL}/users/${userId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         fetchUsers();
       } catch (error) {
-        setError('Failed to delete user: ' + error.message);
+        console.error('Error deleting user:', error);
+        if (error.response?.status === 401) {
+          setError('Your session has expired. Please log in again.');
+        } else if (error.response?.status === 403) {
+          setError('You do not have permission to delete users.');
+        } else {
+          setError('Failed to delete user: ' + (error.response?.data?.detail || error.message));
+        }
       }
     }
   };
@@ -247,10 +434,13 @@ const UserManagement = () => {
               setShowForm(true);
               setEditingUserId(null);
               setFormData({
+                email: '',
+                full_name: '',
+                role: 'employee',
+                password: '',
                 employee_id: '',
                 first_name: '',
                 last_name: '',
-                email: '',
                 phone: '',
                 department: '',
                 position: '',
@@ -300,108 +490,6 @@ const UserManagement = () => {
                     <TextField
                       required
                       fullWidth
-                      label="Employee ID"
-                      name="employee_id"
-                      value={formData.employee_id}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      label="First Name"
-                      name="first_name"
-                      value={formData.first_name}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      label="Last Name"
-                      name="last_name"
-                      value={formData.last_name}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
                       label="Email"
                       name="email"
                       type="email"
@@ -442,16 +530,14 @@ const UserManagement = () => {
                     <TextField
                       required
                       fullWidth
-                      label="Phone"
-                      name="phone"
-                      value={formData.phone}
+                      label="Full Name"
+                      name="full_name"
+                      value={formData.full_name}
                       onChange={handleInputChange}
-                      error={!!formErrors.phone}
-                      helperText={formErrors.phone}
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <PhoneIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                           </InputAdornment>
                         ),
                       }}
@@ -459,13 +545,84 @@ const UserManagement = () => {
                         '& .MuiOutlinedInput-root': {
                           color: 'white',
                           '& fieldset': {
-                            borderColor: formErrors.phone ? 'error.main' : 'rgba(255, 255, 255, 0.2)',
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
                           },
                           '&:hover fieldset': {
-                            borderColor: formErrors.phone ? 'error.main' : 'rgba(255, 255, 255, 0.4)',
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
                           },
                           '&.Mui-focused fieldset': {
-                            borderColor: formErrors.phone ? 'error.main' : 'rgba(255, 255, 255, 0.6)',
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Role"
+                      name="role"
+                      value={formData.role}
+                      onChange={handleInputChange}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Password"
+                      name="password"
+                      type="password"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      error={!!formErrors.password}
+                      helperText={formErrors.password}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.6)',
                           },
                         },
                         '& .MuiInputLabel-root': {
@@ -479,75 +636,235 @@ const UserManagement = () => {
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
-                      required
                       fullWidth
-                      label="Department"
-                      name="department"
-                      value={formData.department}
+                      label="Employee ID"
+                      name="employee_id"
+                      value={formData.employee_id}
                       onChange={handleInputChange}
                       InputProps={{
                         startAdornment: (
+                          <InputAdornment position="start">
+                            <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="First Name"
+                      name="first_name"
+                      value={formData.first_name}
+                      onChange={handleInputChange}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Last Name"
+                      name="last_name"
+                      value={formData.last_name}
+                      onChange={handleInputChange}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Phone"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <PhoneIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.4)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.6)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth>
+                      <InputLabel 
+                        id="department-label"
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': {
+                            color: 'rgba(255, 255, 255, 0.9)',
+                          },
+                        }}
+                      >
+                        Department
+                      </InputLabel>
+                      <Select
+                        labelId="department-label"
+                        name="department"
+                        value={formData.department}
+                        onChange={handleInputChange}
+                        label="Department"
+                        startAdornment={
                           <InputAdornment position="start">
                             <BusinessIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                           </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
+                        }
+                        sx={{
                           color: 'white',
-                          '& fieldset': {
+                          '& .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.2)',
                           },
-                          '&:hover fieldset': {
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.4)',
                           },
-                          '&.Mui-focused fieldset': {
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.6)',
                           },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
+                          '& .MuiSvgIcon-root': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      >
+                        {departments.map((dept) => (
+                          <MenuItem key={dept} value={dept}>
+                            {dept}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      label="Position"
-                      name="position"
-                      value={formData.position}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
+                    <FormControl fullWidth>
+                      <InputLabel 
+                        id="position-label"
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': {
+                            color: 'rgba(255, 255, 255, 0.9)',
+                          },
+                        }}
+                      >
+                        Position
+                      </InputLabel>
+                      <Select
+                        labelId="position-label"
+                        name="position"
+                        value={formData.position}
+                        onChange={handleInputChange}
+                        label="Position"
+                        disabled={!formData.department}
+                        startAdornment={
                           <InputAdornment position="start">
                             <WorkIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                           </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
+                        }
+                        sx={{
                           color: 'white',
-                          '& fieldset': {
+                          '& .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.2)',
                           },
-                          '&:hover fieldset': {
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.4)',
                           },
-                          '&.Mui-focused fieldset': {
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.6)',
                           },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
+                          '& .MuiSvgIcon-root': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      >
+                        {availablePositions.map((pos) => (
+                          <MenuItem key={pos} value={pos}>
+                            {pos}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
-                      required
                       fullWidth
                       label="Hire Date"
                       name="hire_date"

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import users, attendance
+from .routers import users, attendance, leave
 from .database import engine, Base
 import uvicorn
 
@@ -21,6 +21,7 @@ app.add_middleware(
 # Include routers
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(attendance.router, prefix="/api", tags=["attendance"])
+app.include_router(leave.router, prefix="/api", tags=["leave"])
 
 @app.get("/")
 async def root():

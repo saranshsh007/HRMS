@@ -2,5 +2,6 @@
 
 from . import users
 from . import attendance
+from . import leave
 
-__all__ = ["users", "attendance"] 
+__all__ = ["users", "attendance", "leave"] 
