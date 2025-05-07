@@ -1,114 +1,181 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import {
-  Box,
-  AppBar,
-  Toolbar,
-  Typography,
-  Button,
-} from '@mui/material';
+import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Route, Routes, Navigate, Link, useNavigate } from 'react-router-dom';
+import { Container, Box, AppBar, Toolbar, Typography, Button, CssBaseline, Paper } from '@mui/material';
 import Dashboard from './components/Dashboard';
 import UserManagement from './components/UserManagement';
 import Attendance from './components/Attendance';
 import Login from './components/Login';
+import Register from './components/Register';
+import NotificationBell from './components/NotificationBell';
+import EmployeeLeaveRequests from './components/EmployeeLeaveRequests';
 import './App.css'
 
-const PrivateRoute = ({ children, allowedRoles }) => {
-  const userRole = localStorage.getItem('userRole')?.toLowerCase();
+// Protected route component
+const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('token');
-
-  console.log('Current user role:', userRole);
-  console.log('Allowed roles:', allowedRoles);
-
-  if (!token || !userRole) {
-    console.log('No token or role found, redirecting to login');
-    return <Navigate to="/" replace />;
+  
+  if (!token) {
+    return <Navigate to="/login" replace />;
   }
-
-  if (allowedRoles && !allowedRoles.includes(userRole)) {
-    console.log('Role not allowed, redirecting to login');
-    return <Navigate to="/" replace />;
-  }
-
+  
   return children;
 };
 
-function App() {
-  const userRole = localStorage.getItem('userRole')?.toLowerCase();
-  const token = localStorage.getItem('token');
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('userId');
-    window.location.href = '/';
-  };
-
+// Header component (defined outside of App)
+function AppHeader({ isAuthenticated, userData, onLogout }) {
+  const userRole = localStorage.getItem('userRole');
+  
   return (
-    <Router>
-      <Box sx={{ flexGrow: 1 }}>
-        <AppBar position="static" sx={{ background: 'rgba(26, 35, 126, 0.9)', backdropFilter: 'blur(10px)' }}>
-          <Toolbar>
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-              HRMS
-            </Typography>
-            {token && userRole === 'hr' && (
-              <>
-                <Button color="inherit" component={Link} to="/dashboard">
-                  Dashboard
-                </Button>
-                <Button color="inherit" component={Link} to="/users">
-                  User Management
-                </Button>
-                <Button color="inherit" component={Link} to="/attendance">
-                  Attendance
-                </Button>
-              </>
-            )}
-            {token && userRole !== 'hr' && (
-              <Button color="inherit" component={Link} to="/attendance">
-                Attendance
-              </Button>
-            )}
-            {token && (
+    <AppBar position="static" sx={{ bgcolor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(10px)' }}>
+      <Toolbar>
+        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          {isAuthenticated ? (
+            <Link to="/dashboard" style={{ textDecoration: 'none', color: 'white' }}>
+              HR Management System
+            </Link>
+          ) : 'HR Management System'}
+        </Typography>
+        
+        {isAuthenticated && (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {userRole === 'HR' && (
+                <>
+                  <Button 
+                    color="inherit" 
+                    component={Link} 
+                    to="/user-management"
+                  >
+                    Users
+                  </Button>
+                  <Button 
+                    color="inherit" 
+                    component={Link} 
+                    to="/employee-leave-requests"
+                  >
+                    Leave Requests
+                  </Button>
+                </>
+              )}
               <Button 
                 color="inherit" 
-                onClick={handleLogout}
+                component={Link} 
+                to="/attendance"
               >
-                Logout
+                Attendance
               </Button>
-            )}
-          </Toolbar>
-        </AppBar>
+              {userData && <NotificationBell userId={userData.id} />}
+              <Button color="inherit" onClick={onLogout}>Logout</Button>
+            </Box>
+          </>
+        )}
+      </Toolbar>
+    </AppBar>
+  );
+}
 
-        <Box component="main" sx={{ p: 3 }}>
+function App() {
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [userRole, setUserRole] = useState(localStorage.getItem('userRole'));
+  const [userId, setUserId] = useState(localStorage.getItem('userId'));
+  
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userRole');
+    setToken(null);
+    setUserRole(null);
+    setUserId(null);
+    window.location.href = '/login';
+  };
+  
+  // Listen for storage events (for multi-tab logout)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const currentToken = localStorage.getItem('token');
+      if (token && !currentToken) {
+        setToken(null);
+        setUserRole(null);
+        setUserId(null);
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [token]);
+  
+  return (
+    <Router>
+      <Box 
+        sx={{ 
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #1a237e 0%, #000000 100%)',
+          backgroundSize: 'cover',
+          backgroundAttachment: 'fixed'
+        }}
+      >
+        <CssBaseline />
+        
+        <AppHeader 
+          isAuthenticated={!!token} 
+          userData={userId ? { id: userId } : null} 
+          onLogout={handleLogout}
+        />
+        
+        <Box component="main" sx={{ 
+          p: 0, 
+          height: 'calc(100vh - 64px)',  // Subtract the AppBar height
+          overflow: 'auto'
+        }}>
           <Routes>
-            <Route path="/" element={!token ? <Login /> : <Navigate to={userRole === 'hr' ? '/dashboard' : '/attendance'} />} />
             <Route 
-              path="/dashboard" 
+              path="/login" 
               element={
-                <PrivateRoute allowedRoles={['hr']}>
-                  <Dashboard />
-                </PrivateRoute>
+                token ? <Navigate to="/dashboard" replace /> : <Login />
               } 
             />
             <Route 
-              path="/users" 
+              path="/register" 
               element={
-                <PrivateRoute allowedRoles={['hr']}>
+                token ? <Navigate to="/dashboard" replace /> : <Register />
+              } 
+            />
+            <Route 
+              path="/dashboard" 
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/user-management" 
+              element={
+                <ProtectedRoute>
                   <UserManagement />
-                </PrivateRoute>
+                </ProtectedRoute>
               } 
             />
             <Route 
               path="/attendance" 
               element={
-                <PrivateRoute allowedRoles={['hr', 'user', 'employee']}>
+                <ProtectedRoute>
                   <Attendance />
-                </PrivateRoute>
+                </ProtectedRoute>
               } 
             />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route 
+              path="/employee-leave-requests" 
+              element={
+                <ProtectedRoute>
+                  <EmployeeLeaveRequests />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/" 
+              element={<Navigate to={token ? "/dashboard" : "/login"} replace />} 
+            />
           </Routes>
         </Box>
       </Box>

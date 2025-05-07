@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from app.models import Base  # Ensure you import your models
 
 # SQLite Database configuration
 SQLALCHEMY_DATABASE_URL = "sqlite:///./hrms.db"
@@ -14,5 +15,18 @@ engine = create_engine(
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create Base class
-Base = declarative_base() 
+def setup_database():
+    try:
+        # Create all tables
+        Base.metadata.create_all(bind=engine)
+        return True
+    except Exception as e:
+        print(f"Error setting up database: {e}")
+        return False
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close() 

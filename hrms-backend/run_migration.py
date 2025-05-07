@@ -1,20 +1,24 @@
-from app.database.migrations import setup_database
+import os
+import sys
 import logging
+from app.database import engine, Base
+from app.database.migrations import setup_database
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def main():
-    """Run database migrations."""
+def run_migrations():
     try:
-        logger.info("Starting database migration...")
-        if setup_database():
-            logger.info("Database migration completed successfully!")
-        else:
-            logger.error("Database migration failed!")
+        logger.info("Beginning database migrations...")
+        
+        # Initialize database
+        setup_database()
+        
+        logger.info("All migrations completed successfully!")
     except Exception as e:
-        logger.error(f"Error during database migration: {str(e)}")
+        logger.error(f"Error during migration: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    run_migrations() 

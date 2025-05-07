@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")  # Update the tokenUrl with leading slash
 
 # JWT Configuration
 SECRET_KEY = "your-secret-key-here"  # Change this to a secure secret key
@@ -73,26 +73,6 @@ async def get_current_hr_user(current_user: models.User = Depends(get_current_us
         )
     return current_user
 
-@router.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = authenticate_user(db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email, "role": user.role}, expires_delta=access_token_expires
-    )
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "role": user.role,
-        "user_id": user.id
-    }
-
 @router.post("/users/", response_model=schemas.User)
 async def create_user(
     user: schemas.UserCreate,
@@ -138,6 +118,19 @@ async def create_user(
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
+        
+        # Create default leave balance
+        leave_balance = models.LeaveBalance(
+            employee_id=db_user.id,
+            annual_leave=10.0,
+            sick_leave=5.0,
+            casual_leave=5.0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(leave_balance)
+        db.commit()
+        
         logger.info(f"Successfully created user with ID: {db_user.id}")
         return db_user
     except Exception as e:

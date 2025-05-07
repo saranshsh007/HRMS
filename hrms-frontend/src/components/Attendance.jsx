@@ -48,7 +48,7 @@ import {
   Badge as BadgeIcon,
 } from '@mui/icons-material';
 import { format, subDays, startOfMonth, endOfMonth, parseISO, differenceInHours, differenceInMinutes } from 'date-fns';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // Add axios interceptor for authentication
 axios.interceptors.request.use(
@@ -108,9 +108,25 @@ const Attendance = () => {
     reason: ''
   });
   const [userDetails, setUserDetails] = useState(null);
+  const [allEmployeesAttendance, setAllEmployeesAttendance] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const location = useLocation();
   const navigate = useNavigate();
   const userRole = localStorage.getItem('userRole');
   const userId = localStorage.getItem('userId');
+  const isHR = userRole?.toLowerCase() === 'hr';
+
+  useEffect(() => {
+    // Check for tab parameter in URL
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam) {
+      const tabIndex = parseInt(tabParam);
+      if (!isNaN(tabIndex) && tabIndex >= 0 && tabIndex <= 3) {
+        setActiveTab(tabIndex);
+      }
+    }
+  }, [location]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -129,6 +145,12 @@ const Attendance = () => {
       fetchUserDetails();
     }
   }, [userId, dateRange]);
+
+  useEffect(() => {
+    if (isHR) {
+      fetchAllEmployeesAttendance();
+    }
+  }, [isHR, selectedDate]);
 
   const checkTodayAttendance = async () => {
     try {
@@ -222,18 +244,47 @@ const Attendance = () => {
     }
   };
 
+  const handleCheckout = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSuccess(null);
+
+      console.log('Attempting check-out for user:', userId);
+      const response = await axios.put(`${API_BASE_URL}/attendance/check-out`, {
+        employee_id: parseInt(userId),
+        date: format(new Date(), 'yyyy-MM-dd'),
+        check_out: format(new Date(), 'HH:mm'),
+        early_exit: new Date().getHours() < 17 || (new Date().getHours() === 17 && new Date().getMinutes() < 30)
+      });
+
+      console.log('Check-out response:', response.data);
+      setAttendance(response.data);
+      setSuccess('Successfully checked out!');
+      fetchAttendanceRecords();
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to check out');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     localStorage.removeItem('userId');
-    navigate('/');
+    
+    // Force a page refresh to ensure complete state reset
+    window.location.href = '/';
   };
 
   const handleBackToLogin = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     localStorage.removeItem('userId');
-    navigate('/');
+    
+    // Force a page refresh to ensure complete state reset
+    window.location.href = '/';
   };
 
   const fetchLeaveRequests = async () => {
@@ -324,6 +375,189 @@ const Attendance = () => {
       setLoading(false);
     }
   };
+
+  const fetchAllEmployeesAttendance = async () => {
+    try {
+      setLoading(true);
+      console.log('Fetching all employees attendance for date:', selectedDate);
+      const response = await axios.get(`${API_BASE_URL}/attendance/all-records`, {
+        params: { date: selectedDate }
+      });
+      console.log('All employees attendance:', response.data);
+      setAllEmployeesAttendance(response.data);
+    } catch (error) {
+      console.error('Error fetching all employees attendance:', error.response || error);
+      setError(error.response?.data?.detail || 'Failed to fetch all employees attendance');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHRCheckout = async (employeeId) => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSuccess(null);
+
+      console.log('HR performing check-out for employee:', employeeId);
+      const response = await axios.put(`${API_BASE_URL}/attendance/check-out`, {
+        employee_id: parseInt(employeeId),
+        date: selectedDate,
+        check_out: format(new Date(), 'HH:mm'),
+        early_exit: new Date().getHours() < 17 || (new Date().getHours() === 17 && new Date().getMinutes() < 30)
+      });
+
+      console.log('HR Check-out response:', response.data);
+      setSuccess(`Successfully checked out employee #${employeeId}`);
+      fetchAllEmployeesAttendance();
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to check out employee');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderAllEmployeesAttendance = () => (
+    <Box>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            type="date"
+            label="Date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                color: 'white',
+                '& fieldset': {
+                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: 'rgba(255, 255, 255, 0.7)',
+              },
+            }}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Button 
+            variant="contained" 
+            onClick={fetchAllEmployeesAttendance}
+            sx={{
+              mt: 1,
+              background: 'rgba(33, 150, 243, 0.2)',
+              '&:hover': { background: 'rgba(33, 150, 243, 0.3)' },
+            }}
+          >
+            Refresh Data
+          </Button>
+        </Grid>
+      </Grid>
+
+      <TableContainer component={Paper} sx={{ bgcolor: 'rgba(255, 255, 255, 0.05)' }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Employee</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Check In</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Check Out</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Status</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Working Hours</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Remarks</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {allEmployeesAttendance.map((record) => {
+              let workingHours = 0;
+              if (record.check_in && record.check_out) {
+                const checkIn = parseISO(`2000-01-01T${record.check_in}`);
+                const checkOut = parseISO(`2000-01-01T${record.check_out}`);
+                workingHours = differenceInMinutes(checkOut, checkIn) / 60;
+              }
+
+              return (
+                <TableRow key={record.employee_id}>
+                  <TableCell sx={{ color: 'white' }}>{record.employee_name}</TableCell>
+                  <TableCell sx={{ color: 'white' }}>
+                    {record.check_in}
+                    {record.late_entry && (
+                      <Chip
+                        size="small"
+                        icon={<WarningIcon />}
+                        label="Late"
+                        sx={{
+                          ml: 1,
+                          bgcolor: 'rgba(255, 152, 0, 0.2)',
+                          color: 'white',
+                          '& .MuiChip-icon': { color: 'white' }
+                        }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ color: 'white' }}>
+                    {record.check_out}
+                    {record.early_exit && (
+                      <Chip
+                        size="small"
+                        icon={<WarningIcon />}
+                        label="Early"
+                        sx={{
+                          ml: 1,
+                          bgcolor: 'rgba(33, 150, 243, 0.2)',
+                          color: 'white',
+                          '& .MuiChip-icon': { color: 'white' }
+                        }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ color: 'white' }}>
+                    <Chip
+                      size="small"
+                      icon={record.status === 'present' ? <CheckCircleIcon /> : <CancelIcon />}
+                      label={record.status}
+                      sx={{
+                        bgcolor: record.status === 'present' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)',
+                        color: 'white',
+                        '& .MuiChip-icon': { color: 'white' }
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell sx={{ color: 'white' }}>
+                    {workingHours > 0 ? `${workingHours.toFixed(1)}h` : '-'}
+                  </TableCell>
+                  <TableCell sx={{ color: 'white' }}>
+                    {record.late_entry && record.early_exit && 'Irregular Hours'}
+                    {record.late_entry && !record.early_exit && 'Late Arrival'}
+                    {!record.late_entry && record.early_exit && 'Early Departure'}
+                    {!record.late_entry && !record.early_exit && record.status === 'present' && 'Regular'}
+                    {record.status === 'absent' && 'Absent'}
+                  </TableCell>
+                  <TableCell>
+                    {record.status === 'present' && !record.check_out && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => handleHRCheckout(record.employee_id)}
+                        sx={{
+                          background: 'rgba(244, 67, 54, 0.2)',
+                          '&:hover': { background: 'rgba(244, 67, 54, 0.3)' },
+                        }}
+                      >
+                        Check Out
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
 
   const renderDashboard = () => (
     <Grid container spacing={3}>
@@ -782,8 +1016,21 @@ const Attendance = () => {
             <Tab label="Attendance" />
             <Tab label="Leave Management" />
             <Tab label="My Profile" />
+            {isHR && <Tab label="All Employees" />}
           </Tabs>
         </Paper>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            {success}
+          </Alert>
+        )}
 
         {activeTab === 0 && (
           <Box>
@@ -1114,6 +1361,8 @@ const Attendance = () => {
             </Grid>
           </Grid>
         )}
+
+        {isHR && activeTab === 4 && renderAllEmployeesAttendance()}
       </Container>
     </Box>
   );

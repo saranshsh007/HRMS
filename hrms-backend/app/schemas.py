@@ -13,7 +13,6 @@ class UserBase(BaseModel):
     department: Optional[str] = None
     position: Optional[str] = None
     hire_date: Optional[date] = None
-    leave_balance: int = 10
 
 class UserCreate(UserBase):
     password: str
@@ -23,8 +22,6 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
-    is_active: Optional[bool] = None
-    leave_balance: Optional[int] = None
     employee_id: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -35,7 +32,6 @@ class UserUpdate(BaseModel):
 
 class User(UserBase):
     id: int
-    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -61,9 +57,17 @@ class AttendanceCreate(AttendanceBase):
     pass
 
 class AttendanceUpdate(BaseModel):
-    check_out: Optional[time] = None
+    employee_id: int
+    date: Optional[str] = None
+    check_out: Optional[str] = None
     status: Optional[str] = None
     early_exit: Optional[bool] = None
+
+class AttendanceCheckOut(BaseModel):
+    employee_id: int
+    date: Optional[str] = None
+    check_out: str
+    early_exit: bool = False
 
 class Attendance(AttendanceBase):
     id: int
@@ -97,10 +101,40 @@ class LeaveRequest(LeaveRequestBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+class LeaveBalanceBase(BaseModel):
+    employee_id: int
+    annual_leave: float
+    sick_leave: float
+    casual_leave: float
+
+class LeaveBalanceCreate(LeaveBalanceBase):
+    pass
+
+class LeaveBalanceDB(LeaveBalanceBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 class LeaveBalance(BaseModel):
     employee_id: int
     total_days: int
     days_taken: int
     days_remaining: int
 
+    model_config = ConfigDict(from_attributes=True)
+
+class NotificationBase(BaseModel):
+    message: str
+    
+class NotificationCreate(NotificationBase):
+    user_id: int
+    
+class Notification(NotificationBase):
+    id: int
+    user_id: int
+    read: bool
+    created_at: datetime
+    
     model_config = ConfigDict(from_attributes=True) 

@@ -561,38 +561,38 @@ const UserManagement = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      label="Role"
-                      name="role"
-                      value={formData.role}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
+                    <FormControl fullWidth>
+                      <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Role</InputLabel>
+                      <Select
+                        required
+                        name="role"
+                        value={formData.role}
+                        onChange={handleInputChange}
+                        startAdornment={
                           <InputAdornment position="start">
                             <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                           </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
+                        }
+                        sx={{
                           color: 'white',
-                          '& fieldset': {
+                          '& .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.2)',
                           },
-                          '&:hover fieldset': {
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.4)',
                           },
-                          '&.Mui-focused fieldset': {
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                             borderColor: 'rgba(255, 255, 255, 0.6)',
                           },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
+                          '& .MuiSvgIcon-root': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          }
+                        }}
+                      >
+                        <MenuItem value="HR">HR</MenuItem>
+                        <MenuItem value="employee">Employee</MenuItem>
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
