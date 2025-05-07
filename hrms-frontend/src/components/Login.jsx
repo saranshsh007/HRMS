@@ -48,24 +48,52 @@ const Login = () => {
     setError('');
 
     try {
-      // For demo purposes, we'll use hardcoded credentials
-      if (activeTab === 0) { // HR Login
-        if (formData.email === 'hr@gmail.com' && formData.password === '1234') {
-          localStorage.setItem('userRole', 'hr');
-          navigate('/dashboard');
-        } else {
-          setError('Invalid HR credentials');
+      const loginData = new URLSearchParams();
+      loginData.append('username', formData.email);
+      loginData.append('password', formData.password);
+
+      const response = await axios.post(`${API_BASE_URL}/token`, loginData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
         }
-      } else { // User Login
-        if (formData.email === 'user@gmail.com' && formData.password === '1234') {
-          localStorage.setItem('userRole', 'user');
-          navigate('/attendance');
-        } else {
-          setError('Invalid user credentials');
-        }
+      });
+      
+      console.log('Login response:', response.data);
+      
+      if (!response.data.access_token || !response.data.role || !response.data.user_id) {
+        throw new Error('Invalid response from server');
+      }
+      
+      // Store the token, user role, and user ID
+      localStorage.setItem('token', response.data.access_token);
+      localStorage.setItem('userRole', response.data.role.toLowerCase());
+      localStorage.setItem('userId', response.data.user_id);
+
+      console.log('Stored role:', response.data.role.toLowerCase());
+      console.log('Stored token:', response.data.access_token);
+      console.log('Stored user ID:', response.data.user_id);
+
+      // Set default authorization header for future requests
+      axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
+
+      // Navigate based on role
+      const userRole = response.data.role.toLowerCase();
+      if (userRole === 'hr') {
+        console.log('Navigating to dashboard...');
+        navigate('/dashboard');
+      } else {
+        console.log('Navigating to attendance...');
+        navigate('/attendance');
       }
     } catch (err) {
-      setError('An error occurred during login');
+      console.error('Login error:', err);
+      if (err.response?.status === 401) {
+        setError('Invalid email or password');
+      } else if (err.message === 'Invalid response from server') {
+        setError('Server returned invalid response');
+      } else {
+        setError('An error occurred during login. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

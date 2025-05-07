@@ -14,18 +14,35 @@ import Login from './components/Login';
 import './App.css'
 
 const PrivateRoute = ({ children, allowedRoles }) => {
-  const userRole = localStorage.getItem('userRole');
-  if (!userRole) {
+  const userRole = localStorage.getItem('userRole')?.toLowerCase();
+  const token = localStorage.getItem('token');
+
+  console.log('Current user role:', userRole);
+  console.log('Allowed roles:', allowedRoles);
+
+  if (!token || !userRole) {
+    console.log('No token or role found, redirecting to login');
     return <Navigate to="/" replace />;
   }
+
   if (allowedRoles && !allowedRoles.includes(userRole)) {
+    console.log('Role not allowed, redirecting to login');
     return <Navigate to="/" replace />;
   }
+
   return children;
 };
 
 function App() {
-  const userRole = localStorage.getItem('userRole');
+  const userRole = localStorage.getItem('userRole')?.toLowerCase();
+  const token = localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userId');
+    window.location.href = '/';
+  };
 
   return (
     <Router>
@@ -35,7 +52,7 @@ function App() {
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               HRMS
             </Typography>
-            {userRole === 'hr' && (
+            {token && userRole === 'hr' && (
               <>
                 <Button color="inherit" component={Link} to="/dashboard">
                   Dashboard
@@ -43,20 +60,20 @@ function App() {
                 <Button color="inherit" component={Link} to="/users">
                   User Management
                 </Button>
+                <Button color="inherit" component={Link} to="/attendance">
+                  Attendance
+                </Button>
               </>
             )}
-            {userRole === 'user' && (
+            {token && userRole !== 'hr' && (
               <Button color="inherit" component={Link} to="/attendance">
                 Attendance
               </Button>
             )}
-            {userRole && (
+            {token && (
               <Button 
                 color="inherit" 
-                onClick={() => {
-                  localStorage.removeItem('userRole');
-                  window.location.href = '/';
-                }}
+                onClick={handleLogout}
               >
                 Logout
               </Button>
@@ -66,7 +83,7 @@ function App() {
 
         <Box component="main" sx={{ p: 3 }}>
           <Routes>
-            <Route path="/" element={<Login />} />
+            <Route path="/" element={!token ? <Login /> : <Navigate to={userRole === 'hr' ? '/dashboard' : '/attendance'} />} />
             <Route 
               path="/dashboard" 
               element={
@@ -86,7 +103,7 @@ function App() {
             <Route 
               path="/attendance" 
               element={
-                <PrivateRoute allowedRoles={['user', 'hr']}>
+                <PrivateRoute allowedRoles={['hr', 'user', 'employee']}>
                   <Attendance />
                 </PrivateRoute>
               } 
