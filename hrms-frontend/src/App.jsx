@@ -5,9 +5,9 @@ import Dashboard from './components/Dashboard';
 import UserManagement from './components/UserManagement';
 import Attendance from './components/Attendance';
 import Login from './components/Login';
-import Register from './components/Register';
-import NotificationBell from './components/NotificationBell';
 import EmployeeLeaveRequests from './components/EmployeeLeaveRequests';
+import AssetAllocation from './components/AssetAllocation';
+import PolicyManagement from './components/PolicyManagement';
 import './App.css'
 
 // Protected route component
@@ -22,52 +22,135 @@ const ProtectedRoute = ({ children }) => {
 };
 
 // Header component (defined outside of App)
-function AppHeader({ isAuthenticated, userData, onLogout }) {
-  const userRole = localStorage.getItem('userRole');
-  
+function AppHeader({ isAuthenticated, userData, userRole, onLogout }) {
   return (
-    <AppBar position="static" sx={{ bgcolor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(10px)' }}>
-      <Toolbar>
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+    <AppBar position="static" sx={{ 
+      bgcolor: 'rgba(0, 0, 0, 0.5)', 
+      backdropFilter: 'blur(10px)',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    }}>
+      <Toolbar sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        px: { xs: 2, sm: 4 }
+      }}>
+        <Typography 
+          variant="h6" 
+          component="div" 
+          sx={{ 
+            fontWeight: 'bold',
+            letterSpacing: '0.5px'
+          }}
+        >
           {isAuthenticated ? (
+            userRole?.toLowerCase() === 'hr' ? (
             <Link to="/dashboard" style={{ textDecoration: 'none', color: 'white' }}>
               HR Management System
             </Link>
+            ) : (
+              <Link to="/attendance" style={{ textDecoration: 'none', color: 'white' }}>
+                Employee Portal
+              </Link>
+            )
           ) : 'HR Management System'}
         </Typography>
         
         {isAuthenticated && (
-          <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              {userRole === 'HR' && (
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: { xs: 1, sm: 2 },
+            flexWrap: 'nowrap'
+          }}>
+            {userRole?.toLowerCase() === 'hr' ? (
                 <>
                   <Button 
                     color="inherit" 
                     component={Link} 
                     to="/user-management"
+                  sx={{ 
+                    minWidth: 'auto',
+                    px: { xs: 1, sm: 2 },
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
                   >
                     Users
                   </Button>
                   <Button 
-                    color="inherit" 
+                  color="inherit"
                     component={Link} 
                     to="/employee-leave-requests"
+                    sx={{
+                    minWidth: 'auto',
+                    px: { xs: 1, sm: 2 },
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  Leave Requests
+                </Button>
+                <Button 
+                  color="inherit"
+                  component={Link} 
+                  to="/asset-allocation"
+                  sx={{ 
+                    minWidth: 'auto',
+                    px: { xs: 1, sm: 2 },
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  Assets
+                </Button>
+                <Button 
+                  color="inherit"
+                  component={Link} 
+                  to="/policy-management"
+                  sx={{ 
+                    minWidth: 'auto',
+                    px: { xs: 1, sm: 2 },
+                      '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                    }
+                    }}
                   >
-                    Leave Requests
+                  Policies
                   </Button>
                 </>
-              )}
+            ) : null}
               <Button 
                 color="inherit" 
                 component={Link} 
                 to="/attendance"
+              sx={{ 
+                minWidth: 'auto',
+                px: { xs: 1, sm: 2 },
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                }
+              }}
               >
-                Attendance
+              Personal Information
               </Button>
-              {userData && <NotificationBell userId={userData.id} />}
-              <Button color="inherit" onClick={onLogout}>Logout</Button>
+            <Button 
+              color="inherit" 
+              onClick={onLogout}
+              sx={{ 
+                minWidth: 'auto',
+                px: { xs: 1, sm: 2 },
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                }
+              }}
+            >
+              Logout
+            </Button>
             </Box>
-          </>
         )}
       </Toolbar>
     </AppBar>
@@ -79,6 +162,26 @@ function App() {
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole'));
   const [userId, setUserId] = useState(localStorage.getItem('userId'));
   
+  // Add effect to update state when localStorage changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const currentToken = localStorage.getItem('token');
+      const currentRole = localStorage.getItem('userRole');
+      const currentUserId = localStorage.getItem('userId');
+      
+      setToken(currentToken);
+      setUserRole(currentRole);
+      setUserId(currentUserId);
+    };
+    
+    // Initial check
+    handleStorageChange();
+    
+    // Listen for storage events
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+  
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userId');
@@ -88,21 +191,6 @@ function App() {
     setUserId(null);
     window.location.href = '/login';
   };
-  
-  // Listen for storage events (for multi-tab logout)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const currentToken = localStorage.getItem('token');
-      if (token && !currentToken) {
-        setToken(null);
-        setUserRole(null);
-        setUserId(null);
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [token]);
   
   return (
     <Router>
@@ -119,65 +207,53 @@ function App() {
         <AppHeader 
           isAuthenticated={!!token} 
           userData={userId ? { id: userId } : null} 
+          userRole={userRole}
           onLogout={handleLogout}
         />
         
-        <Box component="main" sx={{ 
-          p: 0, 
-          height: 'calc(100vh - 64px)',  // Subtract the AppBar height
-          overflow: 'auto'
-        }}>
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
           <Routes>
-            <Route 
-              path="/login" 
-              element={
-                token ? <Navigate to="/dashboard" replace /> : <Login />
-              } 
-            />
-            <Route 
-              path="/register" 
-              element={
-                token ? <Navigate to="/dashboard" replace /> : <Register />
-              } 
-            />
-            <Route 
-              path="/dashboard" 
-              element={
+            <Route path="/login" element={!token ? <Login /> : <Navigate to={userRole?.toLowerCase() === 'hr' ? '/dashboard' : '/attendance'} />} />
+            
+            {/* HR Routes */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                {userRole?.toLowerCase() === 'hr' ? <Dashboard /> : <Navigate to="/attendance" />}
+              </ProtectedRoute>
+            } />
+            <Route path="/user-management" element={
+              <ProtectedRoute>
+                {userRole?.toLowerCase() === 'hr' ? <UserManagement /> : <Navigate to="/attendance" />}
+              </ProtectedRoute>
+            } />
+            <Route path="/employee-leave-requests" element={
                 <ProtectedRoute>
-                  <Dashboard />
+                {userRole?.toLowerCase() === 'hr' ? <EmployeeLeaveRequests /> : <Navigate to="/attendance" />}
                 </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/user-management" 
-              element={
+            } />
+            <Route path="/asset-allocation" element={
                 <ProtectedRoute>
-                  <UserManagement />
+                {userRole?.toLowerCase() === 'hr' ? <AssetAllocation /> : <Navigate to="/attendance" />}
                 </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/attendance" 
-              element={
+            } />
+            <Route path="/policy-management" element={
+                <ProtectedRoute>
+                {userRole?.toLowerCase() === 'hr' ? <PolicyManagement /> : <Navigate to="/attendance" />}
+                </ProtectedRoute>
+            } />
+            
+            {/* Employee Routes */}
+            <Route path="/attendance" element={
                 <ProtectedRoute>
                   <Attendance />
                 </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/employee-leave-requests" 
-              element={
-                <ProtectedRoute>
-                  <EmployeeLeaveRequests />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/" 
-              element={<Navigate to={token ? "/dashboard" : "/login"} replace />} 
-            />
+            } />
+            
+            {/* Default redirect */}
+            <Route path="/" element={<Navigate to={token ? (userRole?.toLowerCase() === 'hr' ? '/dashboard' : '/attendance') : '/login'} />} />
+            <Route path="*" element={<Navigate to={token ? (userRole?.toLowerCase() === 'hr' ? '/dashboard' : '/attendance') : '/login'} />} />
           </Routes>
-        </Box>
+        </Container>
       </Box>
     </Router>
   );

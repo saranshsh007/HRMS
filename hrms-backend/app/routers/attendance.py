@@ -12,7 +12,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/attendance",
+    tags=["attendance"]
+)
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -60,21 +63,10 @@ async def check_in(
             logger.error(f"User {current_user.id} attempted to check in for user {attendance.employee_id}")
             raise HTTPException(status_code=403, detail="Not authorized to check in for another user")
         
-        # Check if already checked in today
-        today = date.today()
-        existing_check_in = db.query(models.Attendance).filter(
-            models.Attendance.employee_id == attendance.employee_id,
-            models.Attendance.date == today
-        ).first()
-        
-        if existing_check_in:
-            logger.error(f"User {attendance.employee_id} already checked in today")
-            raise HTTPException(status_code=400, detail="Already checked in today")
-        
         # Create new attendance record
         db_attendance = models.Attendance(
             employee_id=attendance.employee_id,
-            date=today,
+            date=date.today(),
             check_in=attendance.check_in,
             status="present",
             late_entry=attendance.late_entry,
@@ -123,18 +115,16 @@ async def check_out_by_employee_id(
                 logger.error(f"Invalid date format: {attendance_update.date}")
                 # Fall back to today if date parsing fails
         
+        # Find the most recent attendance record without a check-out
         attendance = db.query(models.Attendance).filter(
             models.Attendance.employee_id == attendance_update.employee_id,
-            models.Attendance.date == query_date
-        ).first()
+            models.Attendance.date == query_date,
+            models.Attendance.check_out == None
+        ).order_by(models.Attendance.check_in.desc()).first()
         
         if not attendance:
             logger.error(f"No check-in record found for user {attendance_update.employee_id} on {query_date}")
             raise HTTPException(status_code=404, detail="No check-in record found for today")
-        
-        if attendance.check_out:
-            logger.error(f"User {attendance_update.employee_id} already checked out today")
-            raise HTTPException(status_code=400, detail="Already checked out today")
         
         # Process the check-out time
         if attendance_update.check_out:
@@ -263,29 +253,29 @@ async def get_attendance_records(
 def get_attendance_summary(db: Session = Depends(get_db)):
     today = date.today()
     
-    # Get total present today
-    total_present = db.query(models.Attendance).filter(
+    # Get unique users who have checked in today
+    present_users = db.query(models.Attendance.employee_id).filter(
         models.Attendance.date == today,
         models.Attendance.status == "present"
-    ).count()
+    ).distinct().count()
     
     # Get total users
     total_users = db.query(models.User).count()
     
     # Calculate absentee percentage
-    absentee_percentage = ((total_users - total_present) / total_users) * 100 if total_users > 0 else 0
+    absentee_percentage = ((total_users - present_users) / total_users) * 100 if total_users > 0 else 0
     
-    # Get late arrivals
-    late_arrivals = db.query(models.Attendance).filter(
+    # Get late arrivals (count unique users with late entries)
+    late_arrivals = db.query(models.Attendance.employee_id).filter(
         models.Attendance.date == today,
         models.Attendance.late_entry == True
-    ).count()
+    ).distinct().count()
     
-    # Get early exits
-    early_exits = db.query(models.Attendance).filter(
+    # Get early exits (count unique users with early exits)
+    early_exits = db.query(models.Attendance.employee_id).filter(
         models.Attendance.date == today,
         models.Attendance.early_exit == True
-    ).count()
+    ).distinct().count()
     
     # Get monthly working hours
     monthly_working_hours = []
@@ -297,13 +287,17 @@ def get_attendance_summary(db: Session = Depends(get_db)):
         models.Attendance.date <= today
     ).all()
     
-    # Group attendance by date
+    # Group attendance by date and calculate total hours per day
     daily_hours = {}
     for attendance in month_attendances:
         if attendance.check_in and attendance.check_out:
             hours = (datetime.combine(date.today(), attendance.check_out) - 
                     datetime.combine(date.today(), attendance.check_in)).seconds / 3600
-            daily_hours[attendance.date.isoformat()] = hours
+            date_str = attendance.date.isoformat()
+            if date_str in daily_hours:
+                daily_hours[date_str] += hours
+            else:
+                daily_hours[date_str] = hours
     
     # Convert to list format
     for day in range(1, today.day + 1):
@@ -311,7 +305,7 @@ def get_attendance_summary(db: Session = Depends(get_db)):
         hours = daily_hours.get(current_date.isoformat(), 0)
         monthly_working_hours.append({
             "date": current_date.isoformat(),
-            "hours": hours
+            "hours": round(hours, 2)  # Round to 2 decimal places
         })
     
     # Return summary with default values if no data exists
@@ -325,8 +319,8 @@ def get_attendance_summary(db: Session = Depends(get_db)):
         )
     
     return schemas.AttendanceSummary(
-        total_present=total_present,
-        absentee_percentage=absentee_percentage,
+        total_present=present_users,
+        absentee_percentage=round(absentee_percentage, 2),  # Round to 2 decimal places
         late_arrivals=late_arrivals,
         early_exits=early_exits,
         monthly_working_hours=monthly_working_hours
