@@ -26,6 +26,12 @@ import {
   MenuItem,
   Avatar,
   Divider,
+  Breadcrumbs,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Login as LoginIcon,
@@ -46,9 +52,16 @@ import {
   Business as BusinessIcon,
   Work as WorkIcon,
   Badge as BadgeIcon,
+  NavigateNext as NavigateNextIcon,
+  Description as DescriptionIcon,
+  Inventory as InventoryIcon,
+  EventNote as EventNoteIcon,
 } from '@mui/icons-material';
 import { format, subDays, startOfMonth, endOfMonth, parseISO, differenceInHours, differenceInMinutes } from 'date-fns';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
 // Add axios interceptor for authentication
 axios.interceptors.request.use(
@@ -110,11 +123,54 @@ const Attendance = () => {
   const [userDetails, setUserDetails] = useState(null);
   const [allEmployeesAttendance, setAllEmployeesAttendance] = useState([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [showPolicies, setShowPolicies] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
+  const [policies, setPolicies] = useState([]);
+  const [assets, setAssets] = useState([]);
   const location = useLocation();
   const navigate = useNavigate();
   const userRole = localStorage.getItem('userRole');
   const userId = localStorage.getItem('userId');
   const isHR = userRole?.toLowerCase() === 'hr';
+  const [activeSection, setActiveSection] = useState('attendance');
+
+  useEffect(() => {
+    console.log('Attendance component mounted');
+    console.log('User ID:', userId);
+    console.log('User Role:', userRole);
+    
+    if (!userId) {
+      console.error('No user ID found');
+      navigate('/login');
+      return;
+    }
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        // First fetch attendance records to check for unchecked out records
+        await fetchAttendanceRecords();
+        // Then check today's attendance
+        await checkTodayAttendance();
+        
+        // Finally fetch other data
+        await Promise.all([
+          fetchLeaveRequests(),
+          fetchLeaveBalance(),
+          fetchUserDetails(),
+          fetchPolicies(),
+          fetchAssets()
+        ]);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [userId]);
 
   useEffect(() => {
     // Check for tab parameter in URL
@@ -137,25 +193,47 @@ const Attendance = () => {
   }, []);
 
   useEffect(() => {
-    if (userId) {
-      fetchAttendanceRecords();
-      checkTodayAttendance();
-      fetchLeaveRequests();
-      fetchLeaveBalance();
-      fetchUserDetails();
-    }
-  }, [userId, dateRange]);
-
-  useEffect(() => {
     if (isHR) {
       fetchAllEmployeesAttendance();
     }
   }, [isHR, selectedDate]);
 
+  useEffect(() => {
+    // Add effect to log assets state changes
+    console.log('Assets state updated:', assets);
+  }, [assets]);
+
+  useEffect(() => {
+    // Add effect to log active section changes
+    console.log('Active section changed to:', activeSection);
+  }, [activeSection]);
+
   const checkTodayAttendance = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/attendance/today/${userId}`);
+      console.log('Today\'s attendance:', response.data);
+      
+      // Check if there's any unchecked out record for today
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const hasUncheckedOut = attendanceRecords.some(record => 
+        record.date === today && 
+        record.check_in && 
+        !record.check_out
+      );
+
       setAttendance(response.data);
+      
+      // Set active section and state based on attendance records
+      if (hasUncheckedOut) {
+        console.log('Found unchecked out record, setting to checkout state');
+        setActiveSection('attendance');
+      } else if (response.data && response.data.check_in && !response.data.check_out) {
+        console.log('Current day has check-in but no check-out');
+        setActiveSection('attendance');
+      } else {
+        console.log('No active attendance record found');
+        setActiveSection('attendance');
+      }
     } catch (error) {
       console.error('Error fetching today\'s attendance:', error);
     }
@@ -200,8 +278,8 @@ const Attendance = () => {
       if (record.check_in && record.check_out) {
         const checkIn = parseISO(`2000-01-01T${record.check_in}`);
         const checkOut = parseISO(`2000-01-01T${record.check_out}`);
-        const hours = differenceInMinutes(checkOut, checkIn) / 60;
-        stats.totalHours += hours;
+        const minutes = differenceInMinutes(checkOut, checkIn);
+        stats.totalHours += minutes / 60;
       }
     });
 
@@ -220,24 +298,39 @@ const Attendance = () => {
         return;
       }
 
+      // Check if there's an existing check-in without check-out
+      const hasUncheckedOut = attendanceRecords.some(record => 
+        record.date === format(new Date(), 'yyyy-MM-dd') && 
+        record.check_in && 
+        !record.check_out
+      );
+
+      if (hasUncheckedOut) {
+        setError('You must check out from your previous check-in before checking in again.');
+        return;
+      }
+
       setLoading(true);
       setError(null);
-      setSuccess(null);
+
+      const currentTime = new Date();
+      const isLate = currentTime.getHours() > 9 || (currentTime.getHours() === 9 && currentTime.getMinutes() > 0);
 
       console.log('Attempting check-in for user:', userId);
       const response = await axios.post(`${API_BASE_URL}/attendance/check-in`, {
         employee_id: parseInt(userId),
-        date: format(new Date(), 'yyyy-MM-dd'),
-        check_in: format(new Date(), 'HH:mm'),
+        date: format(currentTime, 'yyyy-MM-dd'),
+        check_in: format(currentTime, 'HH:mm'),
         status: 'present',
-        late_entry: new Date().getHours() > 9 || (new Date().getHours() === 9 && new Date().getMinutes() > 0),
+        late_entry: isLate
       });
 
       console.log('Check-in response:', response.data);
       setAttendance(response.data);
-      setSuccess('Successfully checked in!');
-      fetchAttendanceRecords();
+      setActiveSection('attendance');
+      await fetchAttendanceRecords();
     } catch (error) {
+      console.error('Check-in error:', error.response?.data || error);
       setError(error.response?.data?.detail || 'Failed to check in');
     } finally {
       setLoading(false);
@@ -248,7 +341,6 @@ const Attendance = () => {
     try {
       setLoading(true);
       setError(null);
-      setSuccess(null);
 
       console.log('Attempting check-out for user:', userId);
       const response = await axios.put(`${API_BASE_URL}/attendance/check-out`, {
@@ -260,8 +352,8 @@ const Attendance = () => {
 
       console.log('Check-out response:', response.data);
       setAttendance(response.data);
-      setSuccess('Successfully checked out!');
-      fetchAttendanceRecords();
+      setActiveSection('attendance');
+      await fetchAttendanceRecords();
     } catch (error) {
       setError(error.response?.data?.detail || 'Failed to check out');
     } finally {
@@ -290,9 +382,7 @@ const Attendance = () => {
   const fetchLeaveRequests = async () => {
     try {
       console.log('Fetching leave requests for user:', userId);
-      const response = await axios.get(`${API_BASE_URL}/leave/requests`, {
-        params: { employee_id: userId }
-      });
+      const response = await axios.get(`${API_BASE_URL}/leave/requests/${userId}`);
       console.log('Leave requests response:', response.data);
       setLeaveRequests(response.data);
     } catch (error) {
@@ -316,16 +406,32 @@ const Attendance = () => {
   const fetchUserDetails = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/users/${parseInt(userId)}`);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No authentication token found');
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/users/${parseInt(userId)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
       console.log('User details response:', response.data);
       if (response.data) {
         setUserDetails(response.data);
-      } else {
-        setError('No user details found');
       }
     } catch (error) {
       console.error('Error fetching user details:', error.response?.data || error);
-      setError('Failed to fetch user details');
+      if (error.response?.status === 403) {
+        // Handle token expiration
+        localStorage.removeItem('token');
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('userId');
+        window.location.href = '/';
+      }
     } finally {
       setLoading(false);
     }
@@ -417,29 +523,65 @@ const Attendance = () => {
     }
   };
 
+  const fetchPolicies = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/policies/`);
+      setPolicies(response.data || []);
+    } catch (error) {
+      console.error('Error fetching policies:', error);
+      setPolicies([]);
+    }
+  };
+
+  const fetchAssets = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No authentication token found');
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/assets/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log('Assets response:', response.data);
+      setAssets(response.data);
+    } catch (error) {
+      console.error('Error fetching assets:', error.response?.data || error);
+      setError('Failed to fetch assets');
+      setAssets([]);
+    }
+  };
+
   const renderAllEmployeesAttendance = () => (
     <Box>
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} md={6}>
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <DatePicker
+              label="Date"
+              value={new Date(selectedDate)}
+              onChange={(newValue) => {
+                setSelectedDate(format(newValue, 'yyyy-MM-dd'));
+              }}
+              renderInput={(params) => (
           <TextField
+                  {...params}
             fullWidth
-            type="date"
-            label="Date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            InputLabelProps={{ shrink: true }}
             sx={{
               '& .MuiOutlinedInput-root': {
                 color: 'white',
-                '& fieldset': {
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                      '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
                 },
-              },
-              '& .MuiInputLabel-root': {
-                color: 'rgba(255, 255, 255, 0.7)',
-              },
+                    '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
             }}
           />
+              )}
+            />
+          </LocalizationProvider>
         </Grid>
         <Grid item xs={12} md={6}>
           <Button 
@@ -561,7 +703,7 @@ const Attendance = () => {
 
   const renderDashboard = () => (
     <Grid container spacing={3}>
-      <Grid item xs={12} md={6} lg={3}>
+      <Grid item xs={12} md={6}>
         <Card sx={{ bgcolor: 'rgba(76, 175, 80, 0.1)' }}>
           <CardContent>
             <Typography variant="h6" sx={{ color: 'white' }}>Present Days</Typography>
@@ -572,7 +714,7 @@ const Attendance = () => {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={6} lg={3}>
+      <Grid item xs={12} md={6}>
         <Card sx={{ bgcolor: 'rgba(244, 67, 54, 0.1)' }}>
           <CardContent>
             <Typography variant="h6" sx={{ color: 'white' }}>Absent Days</Typography>
@@ -583,43 +725,101 @@ const Attendance = () => {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={6} lg={3}>
-        <Card sx={{ bgcolor: 'rgba(255, 152, 0, 0.1)' }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ color: 'white' }}>Late Entries</Typography>
-            <Typography variant="h4" sx={{ color: 'white' }}>{stats.late}</Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              {((stats.late / stats.present) * 100).toFixed(1)}% of days
-            </Typography>
-          </CardContent>
-        </Card>
       </Grid>
-      <Grid item xs={12} md={6} lg={3}>
-        <Card sx={{ bgcolor: 'rgba(33, 150, 243, 0.1)' }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ color: 'white' }}>Early Exits</Typography>
-            <Typography variant="h4" sx={{ color: 'white' }}>{stats.earlyExit}</Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              {((stats.earlyExit / stats.present) * 100).toFixed(1)}% of days
-            </Typography>
-          </CardContent>
-        </Card>
+  );
+
+  const renderDateRangeSelector = () => (
+    <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid item xs={12} md={5}>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <DatePicker
+            label="Start Date"
+            value={new Date(dateRange.start)}
+            onChange={(newValue) => {
+              setDateRange(prev => ({
+                ...prev,
+                start: format(newValue, 'yyyy-MM-dd')
+              }));
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+            )}
+          />
+        </LocalizationProvider>
+      </Grid>
+      <Grid item xs={12} md={5}>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <DatePicker
+            label="End Date"
+            value={new Date(dateRange.end)}
+            onChange={(newValue) => {
+              setDateRange(prev => ({
+                ...prev,
+                end: format(newValue, 'yyyy-MM-dd')
+              }));
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+            )}
+          />
+        </LocalizationProvider>
+      </Grid>
+      <Grid item xs={12} md={2}>
+        <Button
+          fullWidth
+          variant="contained"
+          onClick={fetchAttendanceRecords}
+          sx={{
+            mt: 1,
+            background: 'rgba(33, 150, 243, 0.2)',
+            '&:hover': { background: 'rgba(33, 150, 243, 0.3)' },
+          }}
+        >
+          Apply
+        </Button>
       </Grid>
     </Grid>
   );
 
   const renderAttendanceTable = () => (
-    <TableContainer component={Paper} sx={{ mt: 3, bgcolor: 'rgba(255, 255, 255, 0.05)' }}>
+    <TableContainer 
+      component={Paper} 
+      sx={{
+        mb: 4,
+        background: 'rgba(255, 255, 255, 0.1)',
+        backdropFilter: 'blur(10px)',
+        borderRadius: 2,
+      }}
+    >
       <Table>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Check In</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Check Out</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Status</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Working Hours</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Remarks</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Leave Status</TableCell>
+            <TableCell sx={{ color: 'white' }}>Date</TableCell>
+            <TableCell sx={{ color: 'white' }}>Check In</TableCell>
+            <TableCell sx={{ color: 'white' }}>Check Out</TableCell>
+            <TableCell sx={{ color: 'white' }}>Status</TableCell>
+            <TableCell sx={{ color: 'white' }}>Working Hours</TableCell>
+            <TableCell sx={{ color: 'white' }}>Entry Type</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -628,115 +828,58 @@ const Attendance = () => {
             if (record.check_in && record.check_out) {
               const checkIn = parseISO(`2000-01-01T${record.check_in}`);
               const checkOut = parseISO(`2000-01-01T${record.check_out}`);
-              workingHours = differenceInMinutes(checkOut, checkIn) / 60;
+              const minutes = differenceInMinutes(checkOut, checkIn);
+              workingHours = minutes / 60;
             }
 
-            // Find if there's a leave request for this date
-            const leaveRequest = leaveRequests.find(request => {
-              const startDate = new Date(request.start_date);
-              const endDate = new Date(request.end_date);
-              const recordDate = new Date(record.date);
-              return recordDate >= startDate && recordDate <= endDate;
-            });
+            const isToday = record.date === format(new Date(), 'yyyy-MM-dd');
+            const needsCheckout = isToday && record.check_in && !record.check_out;
 
             return (
-              <TableRow key={record.id}>
-                <TableCell sx={{ color: 'white' }}>{record.date}</TableCell>
-                <TableCell sx={{ color: 'white' }}>
-                  {record.check_in}
-                  {record.late_entry && (
-                    <Chip
-                      size="small"
-                      icon={<WarningIcon />}
-                      label="Late"
+              <TableRow 
+                key={record.id}
                       sx={{
-                        ml: 1,
-                        bgcolor: 'rgba(255, 152, 0, 0.2)',
-                        color: 'white',
-                        '& .MuiChip-icon': { color: 'white' }
-                      }}
-                    />
-                  )}
-                </TableCell>
+                  '&:nth-of-type(odd)': { 
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)' 
+                  },
+                  '&:hover': { 
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)' 
+                  },
+                  ...(needsCheckout && {
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)'
+                  })
+                }}
+              >
                 <TableCell sx={{ color: 'white' }}>
-                  {record.check_out}
-                  {record.early_exit && (
-                    <Chip
-                      size="small"
-                      icon={<WarningIcon />}
-                      label="Early"
-                      sx={{
-                        ml: 1,
-                        bgcolor: 'rgba(33, 150, 243, 0.2)',
-                        color: 'white',
-                        '& .MuiChip-icon': { color: 'white' }
-                      }}
-                    />
-                  )}
+                  {format(new Date(record.date), 'MMM dd, yyyy')}
                 </TableCell>
-                <TableCell sx={{ color: 'white' }}>
+                <TableCell sx={{ color: 'white' }}>{record.check_in}</TableCell>
+                <TableCell sx={{ color: 'white' }}>{record.check_out || '-'}</TableCell>
+                <TableCell>
                   <Chip
+                    icon={
+                      record.status === 'present' ? <CheckCircleIcon /> :
+                      record.status === 'absent' ? <CancelIcon /> :
+                      <WarningIcon />
+                    }
+                    label={record.status.toUpperCase()}
+                    color={
+                      record.status === 'present' ? 'success' :
+                      record.status === 'absent' ? 'error' :
+                      'warning'
+                    }
                     size="small"
-                    icon={record.status === 'present' ? <CheckCircleIcon /> : <CancelIcon />}
-                    label={record.status}
                     sx={{
-                      bgcolor: record.status === 'present' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)',
-                      color: 'white',
-                      '& .MuiChip-icon': { color: 'white' }
+                      bgcolor: 'rgba(255, 255, 255, 0.1)',
+                      '& .MuiChip-label': { color: 'white' }
                     }}
                   />
                 </TableCell>
                 <TableCell sx={{ color: 'white' }}>
-                  {workingHours > 0 ? `${workingHours.toFixed(1)}h` : '-'}
+                  {`${workingHours.toFixed(1)} hours`}
                 </TableCell>
                 <TableCell sx={{ color: 'white' }}>
-                  {record.late_entry && record.early_exit && 'Irregular Hours'}
-                  {record.late_entry && !record.early_exit && 'Late Arrival'}
-                  {!record.late_entry && record.early_exit && 'Early Departure'}
-                  {!record.late_entry && !record.early_exit && record.status === 'present' && 'Regular'}
-                  {record.status === 'absent' && 'Absent'}
-                </TableCell>
-                <TableCell sx={{ color: 'white' }}>
-                  {leaveRequest ? (
-                    <Chip
-                      size="small"
-                      icon={leaveRequest.status === 'approved' ? <CheckCircleIcon /> : 
-                           leaveRequest.status === 'rejected' ? <CancelIcon /> : 
-                           <EventBusyIcon />}
-                      label={`${leaveRequest.leave_type} (${leaveRequest.status})`}
-                      sx={{
-                        bgcolor: leaveRequest.status === 'approved' ? 'rgba(76, 175, 80, 0.2)' :
-                                leaveRequest.status === 'rejected' ? 'rgba(244, 67, 54, 0.2)' :
-                                'rgba(255, 152, 0, 0.2)',
-                        color: 'white',
-                        '& .MuiChip-icon': { color: 'white' }
-                      }}
-                    />
-                  ) : (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<EventBusyIcon />}
-                      onClick={() => {
-                        setNewLeave(prev => ({
-                          ...prev,
-                          start_date: record.date,
-                          end_date: record.date
-                        }));
-                        setActiveTab(2); // Switch to leave management tab
-                      }}
-                      sx={{
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        '&:hover': {
-                          borderColor: 'rgba(255, 255, 255, 0.4)',
-                          bgcolor: 'rgba(255, 255, 255, 0.1)'
-                        }
-                      }}
-                    >
-                      Apply Leave
-                    </Button>
-                  )}
+                  {record.late_entry ? 'Late Entry' : 'Regular Entry'}
                 </TableCell>
               </TableRow>
             );
@@ -761,13 +904,26 @@ const Attendance = () => {
                 </Box>
               ) : error ? (
                 <Typography color="error">{error}</Typography>
-              ) : userDetails ? (
+              ) : leaveBalance ? (
                 <Box>
-                  <Typography variant="body1" gutterBottom sx={{ color: 'white' }}>
-                    Available Balance: {userDetails.leave_balance} days
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Total Days: {leaveBalance.total_days || 0} days
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                    Note: Leave balance will be deducted when your request is approved
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Days Taken: {leaveBalance.days_taken || 0} days
+                  </Typography>
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Days Remaining: {leaveBalance.days_remaining || 0} days
+                  </Typography>
+                  <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.2)' }} />
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Annual Leave: {leaveBalance.annual_leave || 0} days
+                  </Typography>
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Sick Leave: {leaveBalance.sick_leave || 0} days
+                  </Typography>
+                  <Typography sx={{ color: 'white', mb: 1 }}>
+                    Casual Leave: {leaveBalance.casual_leave || 0} days
                   </Typography>
                 </Box>
               ) : (
@@ -783,11 +939,6 @@ const Attendance = () => {
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {success}
           </Alert>
         )}
         <form onSubmit={handleLeaveSubmit}>
@@ -810,45 +961,98 @@ const Attendance = () => {
               >
                 <MenuItem value="annual">Annual Leave</MenuItem>
                 <MenuItem value="sick">Sick Leave</MenuItem>
-                <MenuItem value="personal">Personal Leave</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
+                <MenuItem value="casual">Casual Leave</MenuItem>
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Start Date"
+                  value={newLeave.start_date ? new Date(newLeave.start_date) : null}
+                  onChange={(newValue) => {
+                    setNewLeave(prev => ({
+                      ...prev,
+                      start_date: format(newValue, 'yyyy-MM-dd')
+                    }));
+                  }}
+                  renderInput={(params) => (
               <TextField
+                      {...params}
                 fullWidth
-                type="date"
-                label="Start Date"
-                value={newLeave.start_date}
-                onChange={(e) => setNewLeave(prev => ({ ...prev, start_date: e.target.value }))}
                 required
-                InputLabelProps={{ shrink: true }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     color: 'white',
                     '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                          '& input': { color: 'white' },
                   },
                   '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
+                        '& .MuiIconButton-root': { color: 'white' },
+                        '& .MuiInputBase-input': { color: 'white' },
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.4)' },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                        '& .MuiButtonBase-root': { color: 'white' },
+                        '& .MuiSvgIcon-root': { color: 'white' },
+                        '& .MuiPickersInputBase-root': { color: 'white' },
+                        '& .MuiPickersInputBase-input': { color: 'white' },
+                        '& .MuiPickersSectionList-sectionContent': { color: 'white' },
+                        '& .MuiPickersSectionList-sectionSeparator': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionsContainer': { color: 'white' },
+                        '& .MuiPickersSectionList-root': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionContent': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionBefore': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionAfter': { color: 'white' },
+                      }}
               />
+                  )}
+                />
+              </LocalizationProvider>
             </Grid>
             <Grid item xs={12} md={6}>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="End Date"
+                  value={newLeave.end_date ? new Date(newLeave.end_date) : null}
+                  onChange={(newValue) => {
+                    setNewLeave(prev => ({
+                      ...prev,
+                      end_date: format(newValue, 'yyyy-MM-dd')
+                    }));
+                  }}
+                  renderInput={(params) => (
               <TextField
+                      {...params}
                 fullWidth
-                type="date"
-                label="End Date"
-                value={newLeave.end_date}
-                onChange={(e) => setNewLeave(prev => ({ ...prev, end_date: e.target.value }))}
                 required
-                InputLabelProps={{ shrink: true }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     color: 'white',
                     '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                          '& input': { color: 'white' },
                   },
                   '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
+                        '& .MuiIconButton-root': { color: 'white' },
+                        '& .MuiInputBase-input': { color: 'white' },
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.4)' },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                        '& .MuiButtonBase-root': { color: 'white' },
+                        '& .MuiSvgIcon-root': { color: 'white' },
+                        '& .MuiPickersInputBase-root': { color: 'white' },
+                        '& .MuiPickersInputBase-input': { color: 'white' },
+                        '& .MuiPickersSectionList-sectionContent': { color: 'white' },
+                        '& .MuiPickersSectionList-sectionSeparator': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionsContainer': { color: 'white' },
+                        '& .MuiPickersSectionList-root': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionContent': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionBefore': { color: 'white' },
+                        '& .MuiPickersInputBase-sectionAfter': { color: 'white' },
+                      }}
               />
+                  )}
+                />
+              </LocalizationProvider>
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -933,15 +1137,12 @@ const Attendance = () => {
   if (loading) {
     return (
       <Box sx={{ 
+        minHeight: '100vh',
+        py: 4,
+        background: 'linear-gradient(135deg, #1a237e 0%, #283593 100%)',
         display: 'flex', 
         justifyContent: 'center', 
-        alignItems: 'center', 
-        minHeight: '100vh',
-        width: '100vw',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        background: 'linear-gradient(135deg, #1a237e 0%, #4a148c 50%, #880e4f 100%)'
+        alignItems: 'center'
       }}>
         <CircularProgress sx={{ color: 'white' }} />
       </Box>
@@ -951,418 +1152,625 @@ const Attendance = () => {
   return (
     <Box sx={{ 
       minHeight: '100vh',
-      width: '100vw',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      overflowY: 'auto',
-      background: 'linear-gradient(135deg, #1a237e 0%, #4a148c 50%, #880e4f 100%)',
-      py: 4
+      py: 4,
+      background: 'linear-gradient(135deg, #1a237e 0%, #283593 100%)'
     }}>
-      <Container maxWidth="xl">
+      <Container>
+        {/* Header with breadcrumbs */}
+        <Box sx={{ mb: 4 }}>
+          <Breadcrumbs 
+            separator={<NavigateNextIcon fontSize="small" sx={{ color: 'white' }} />}
+            aria-label="breadcrumb"
+            sx={{ color: 'white', mb: 2 }}
+          >
+            <RouterLink 
+              to="/dashboard" 
+              style={{ color: 'white', textDecoration: 'none' }}
+            >
+              Dashboard
+            </RouterLink>
+            <Typography color="white">Personal Details</Typography>
+          </Breadcrumbs>
+          
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
-          alignItems: 'center', 
-          mb: 4 
+            alignItems: 'center' 
         }}>
+            <Typography variant="h4" sx={{ color: 'white', fontWeight: 'bold' }}>
+              Personal Details
+            </Typography>
+            <Box>
           <Button
+                variant="outlined"
+                onClick={() => navigate('/dashboard')}
             startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(-1)}
-            sx={{ color: 'white' }}
-          >
-            Back
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleLogout}
-            startIcon={<ExitToAppIcon />}
             sx={{
-              background: 'rgba(244, 67, 54, 0.2)',
               color: 'white',
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  mr: 2,
               '&:hover': {
-                background: 'rgba(244, 67, 54, 0.3)',
+                    borderColor: 'white',
               },
             }}
           >
-            Logout
+                Back to Dashboard
           </Button>
+            </Box>
+          </Box>
         </Box>
 
-        <Paper sx={{ 
-          p: 3, 
-          mb: 4,
-          background: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: 2,
-        }}>
-          <Tabs 
-            value={activeTab} 
-            onChange={handleTabChange}
-            sx={{
-              '& .MuiTab-root': {
-                color: 'rgba(255, 255, 255, 0.7)',
-                '&.Mui-selected': {
-                  color: 'white',
-                },
-              },
-              '& .MuiTabs-indicator': {
-                backgroundColor: 'white',
-              },
-            }}
-          >
-            <Tab label="Daily Log" />
-            <Tab label="Attendance" />
-            <Tab label="Leave Management" />
-            <Tab label="My Profile" />
-            {isHR && <Tab label="All Employees" />}
-          </Tabs>
-        </Paper>
-
+        {/* Error messages */}
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert 
+            severity="error" 
+            sx={{ mb: 2, bgcolor: 'rgba(244, 67, 54, 0.1)', color: 'white' }}
+            onClose={() => setError(null)}
+          >
             {error}
           </Alert>
         )}
 
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {success}
-          </Alert>
-        )}
-
-        {activeTab === 0 && (
-          <Box>
-            <Paper sx={{
-              p: 2,
-              mb: 3,
-              background: 'rgba(255, 255, 255, 0.05)',
-              textAlign: 'center',
-            }}>
-              <Typography variant="h5" sx={{ color: 'white' }}>
-                {format(currentTime, 'HH:mm:ss')}
+        {/* User Details Card */}
+        <Card sx={{ 
+          mb: 4,
+          background: 'rgba(255, 255, 255, 0.1)',
+          backdropFilter: 'blur(10px)',
+          borderRadius: 2,
+        }}>
+          <CardContent>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ color: 'white', mb: 2 }}>
+                  Employee Information
               </Typography>
-              <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                {format(currentTime, 'EEEE, MMMM d, yyyy')}
+                <Typography sx={{ color: 'white', mb: 1 }}>
+                  Name: {userDetails?.full_name}
               </Typography>
-            </Paper>
-
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-
-            {success && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                {success}
-              </Alert>
-            )}
-
-            {!attendance || attendance.id === 0 ? (
-              <Box>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  onClick={handleLogin}
-                  disabled={loading || !userId}
-                  startIcon={<LoginIcon />}
-                  sx={{
-                    background: 'rgba(76, 175, 80, 0.2)',
-                    '&:hover': {
-                      background: 'rgba(76, 175, 80, 0.3)',
-                    },
-                    height: 48,
-                  }}
-                >
-                  {loading ? <CircularProgress size={24} /> : 'Check In'}
-                </Button>
-              </Box>
-            ) : (
-              <Box>
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                  <Grid item xs={6}>
-                    <Paper sx={{
-                      p: 2,
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      textAlign: 'center',
-                    }}>
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                        Check In
-                      </Typography>
-                      <Typography variant="h6" sx={{ color: 'white' }}>
-                        {attendance.check_in}
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Paper sx={{
-                      p: 2,
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      textAlign: 'center',
-                    }}>
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                        Check Out
-                      </Typography>
-                      <Typography variant="h6" sx={{ color: 'white' }}>
-                        {attendance.check_out || 'Not checked out'}
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                </Grid>
-
-                {!attendance.check_out && (
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    onClick={handleCheckout}
-                    disabled={loading}
-                    startIcon={<LogoutIcon />}
-                    sx={{
-                      background: 'rgba(244, 67, 54, 0.2)',
-                      '&:hover': {
-                        background: 'rgba(244, 67, 54, 0.3)',
-                      },
-                      height: 48,
-                    }}
-                  >
-                    {loading ? <CircularProgress size={24} /> : 'Check Out'}
-                  </Button>
-                )}
-              </Box>
-            )}
-          </Box>
-        )}
-
-        {activeTab === 1 && (
-          <Box>
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  type="date"
-                  label="Start Date"
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                    },
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  type="date"
-                  label="End Date"
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                    },
-                  }}
-                />
+                <Typography sx={{ color: 'white', mb: 1 }}>
+                  Employee ID: {userDetails?.employee_id}
+                </Typography>
+                <Typography sx={{ color: 'white', mb: 1 }}>
+                  Department: {userDetails?.department}
+                </Typography>
+                <Typography sx={{ color: 'white', mb: 1 }}>
+                  Position: {userDetails?.position}
+                </Typography>
               </Grid>
             </Grid>
+          </CardContent>
+        </Card>
 
-            {renderDashboard()}
-            {renderAttendanceTable()}
-          </Box>
-        )}
+        {/* Action Buttons */}
+        <Box sx={{ mb: 4, display: 'flex', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  startIcon={<LoginIcon />}
+            onClick={() => {
+              setActiveSection('attendance');
+              handleLogin();
+            }}
+            disabled={attendance?.check_in && !attendance?.check_out}
+                  sx={{
+              bgcolor: activeSection === 'attendance' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                    '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+                        Check In
+          </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<LogoutIcon />}
+            onClick={() => {
+              setActiveSection('attendance');
+              handleCheckout();
+            }}
+            disabled={!attendance?.check_in || attendance?.check_out}
+                    sx={{
+              bgcolor: activeSection === 'attendance' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                      '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+                      },
+                    }}
+                  >
+            Check Out
+                  </Button>
+          <Button
+            variant="contained"
+            startIcon={<EventNoteIcon />}
+            onClick={() => setActiveSection('leave')}
+                  sx={{
+              bgcolor: activeSection === 'leave' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+                      },
+            }}
+          >
+            Apply Leave
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<DescriptionIcon />}
+            onClick={() => setActiveSection('policies')}
+            sx={{
+              bgcolor: activeSection === 'policies' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+                    },
+                  }}
+          >
+            Company Policies
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<InventoryIcon />}
+            onClick={() => setActiveSection('assets')}
+            sx={{
+              bgcolor: activeSection === 'assets' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+            My Assets
+          </Button>
+        </Box>
 
-        {activeTab === 2 && (
-          <Box>
-            {renderLeaveManagement()}
-          </Box>
-        )}
-
-        {activeTab === 3 && (
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Card sx={{
+        {/* Attendance Records Table */}
+        {activeSection === 'attendance' && (
+          <>
+            {renderDateRangeSelector()}
+            <TableContainer 
+              component={Paper} 
+                  sx={{
+                mb: 4,
                 background: 'rgba(255, 255, 255, 0.1)',
                 backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 2,
+              }}
+            >
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ color: 'white' }}>Date</TableCell>
+                    <TableCell sx={{ color: 'white' }}>Check In</TableCell>
+                    <TableCell sx={{ color: 'white' }}>Check Out</TableCell>
+                    <TableCell sx={{ color: 'white' }}>Status</TableCell>
+                    <TableCell sx={{ color: 'white' }}>Working Hours</TableCell>
+                    <TableCell sx={{ color: 'white' }}>Entry Type</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {attendanceRecords.map((record) => {
+                    let workingHours = 0;
+                    if (record.check_in && record.check_out) {
+                      const checkIn = parseISO(`2000-01-01T${record.check_in}`);
+                      const checkOut = parseISO(`2000-01-01T${record.check_out}`);
+                      const minutes = differenceInMinutes(checkOut, checkIn);
+                      workingHours = minutes / 60;
+                    }
+
+                    const isToday = record.date === format(new Date(), 'yyyy-MM-dd');
+                    const needsCheckout = isToday && record.check_in && !record.check_out;
+
+                    return (
+                      <TableRow 
+                        key={record.id}
+                        sx={{ 
+                          '&:nth-of-type(odd)': { 
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)' 
+                    },
+                          '&:hover': { 
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)' 
+                    },
+                          ...(needsCheckout && {
+                            backgroundColor: 'rgba(255, 152, 0, 0.1)'
+                          })
+                  }}
+                      >
+                        <TableCell sx={{ color: 'white' }}>
+                          {format(new Date(record.date), 'MMM dd, yyyy')}
+                        </TableCell>
+                        <TableCell sx={{ color: 'white' }}>{record.check_in}</TableCell>
+                        <TableCell sx={{ color: 'white' }}>{record.check_out || '-'}</TableCell>
+                        <TableCell>
+                          <Chip
+                            icon={
+                              record.status === 'present' ? <CheckCircleIcon /> :
+                              record.status === 'absent' ? <CancelIcon /> :
+                              <WarningIcon />
+                            }
+                            label={record.status.toUpperCase()}
+                            color={
+                              record.status === 'present' ? 'success' :
+                              record.status === 'absent' ? 'error' :
+                              'warning'
+                            }
+                            size="small"
+                            sx={{ 
+                              bgcolor: 'rgba(255, 255, 255, 0.1)',
+                              '& .MuiChip-label': { color: 'white' }
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ color: 'white' }}>
+                          {`${workingHours.toFixed(1)} hours`}
+                        </TableCell>
+                        <TableCell sx={{ color: 'white' }}>
+                          {record.late_entry ? 'Late Entry' : 'Regular Entry'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </>
+        )}
+
+        {/* Company Policies Section */}
+        {activeSection === 'policies' && (
+              <Card sx={{
+            mb: 4, 
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(10px)',
                 borderRadius: 2,
               }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                    <Avatar
-                      sx={{
-                        width: 80,
-                        height: 80,
-                        bgcolor: 'primary.main',
-                        mr: 2,
-                      }}
-                    >
-                      {userDetails?.full_name?.[0] || 'U'}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h5" sx={{ color: 'white', fontWeight: 'bold' }}>
-                        {userDetails?.full_name || 'Loading...'}
+              <Typography variant="h6" sx={{ color: 'white', mb: 3 }}>
+                Company Policies
                       </Typography>
-                      <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                        {userDetails?.role || 'Loading...'}
+              {policies.length > 0 ? (
+                policies.map((policy) => (
+                  <Box key={policy.id} sx={{ mb: 3 }}>
+                    <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+                      {policy.title}
                       </Typography>
-                    </Box>
-                  </Box>
-
-                  <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.1)' }} />
-
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <EmailIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Email
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.email || 'N/A'}
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      {policy.content}
                         </Typography>
                       </Box>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Employee ID
+                ))
+              ) : (
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                  No policies available at the moment.
                         </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.employee_id || 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PhoneIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Phone
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.phone || 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <BusinessIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Department
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.department || 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <WorkIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Position
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.position || 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <EventIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 2 }} />
-                      <Box>
-                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                          Hire Date
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: 'white' }}>
-                          {userDetails?.hire_date ? new Date(userDetails.hire_date).toLocaleDateString() : 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Box>
+              )}
                 </CardContent>
               </Card>
-            </Grid>
+        )}
 
-            <Grid item xs={12} md={6}>
+        {/* Assets Section */}
+        {activeSection === 'assets' && (
               <Card sx={{
                 background: 'rgba(255, 255, 255, 0.1)',
                 backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
                 borderRadius: 2,
-                height: '100%',
               }}>
                 <CardContent>
                   <Typography variant="h6" sx={{ color: 'white', mb: 3 }}>
+                My Assets
+                  </Typography>
+              {loading ? (
+                <Box display="flex" justifyContent="center" p={2}>
+                  <CircularProgress size={24} sx={{ color: 'white' }} />
+                      </Box>
+              ) : error ? (
+                <Typography color="error">{error}</Typography>
+              ) : assets ? (
+                <TableContainer>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Asset Name</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Category</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Department</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Condition</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Purchase Date</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Warranty Expiry</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {Array.isArray(assets) ? (
+                        assets.map((asset) => (
+                          <TableRow 
+                            key={asset.id}
+                            sx={{ 
+                              '&:nth-of-type(odd)': { 
+                                backgroundColor: 'rgba(255, 255, 255, 0.05)' 
+                              },
+                              '&:hover': { 
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)' 
+                              }
+                            }}
+                          >
+                            <TableCell sx={{ color: 'white' }}>{asset.asset_name}</TableCell>
+                            <TableCell sx={{ color: 'white' }}>{asset.category}</TableCell>
+                            <TableCell sx={{ color: 'white' }}>{asset.department}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={asset.condition.toUpperCase()}
+                                color={
+                                  asset.condition === 'New' ? 'success' :
+                                  asset.condition === 'Good' ? 'primary' :
+                                  asset.condition === 'Fair' ? 'warning' :
+                                  'error'
+                                }
+                                size="small"
+                                sx={{ 
+                                  bgcolor: 'rgba(255, 255, 255, 0.1)',
+                                  '& .MuiChip-label': { color: 'white' }
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ color: 'white' }}>
+                              {asset.purchase_date ? format(new Date(asset.purchase_date), 'MMM dd, yyyy') : '-'}
+                            </TableCell>
+                            <TableCell sx={{ color: 'white' }}>
+                              {asset.warranty_expiry ? format(new Date(asset.warranty_expiry), 'MMM dd, yyyy') : '-'}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} sx={{ color: 'white', textAlign: 'center' }}>
+                            No assets assigned
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography sx={{ color: 'white' }}>No assets assigned to you at the moment.</Typography>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Leave Management Section */}
+        {activeSection === 'leave' && (
+          <Box>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={4}>
+                <Card sx={{ mb: 3, background: 'rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)' }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 'bold' }}>
                     Leave Balance
                   </Typography>
-                  {leaveBalance ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                          Monthly Accrual
-                        </Typography>
-                        <Typography variant="h6" sx={{ color: 'white' }}>
-                          2 days
-                        </Typography>
+                    {loading ? (
+                      <Box display="flex" justifyContent="center" p={2}>
+                        <CircularProgress size={24} sx={{ color: 'white' }} />
                       </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                          Total Days Available
+                    ) : error ? (
+                      <Typography color="error">{error}</Typography>
+                    ) : leaveBalance ? (
+                      <Box>
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Total Days: {leaveBalance.total_days || 0} days
                         </Typography>
-                        <Typography variant="h6" sx={{ color: 'white' }}>
-                          {leaveBalance.total_days} days
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Days Taken: {leaveBalance.days_taken || 0} days
                         </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                          Days Taken
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Days Remaining: {leaveBalance.days_remaining || 0} days
                         </Typography>
-                        <Typography variant="h6" sx={{ color: 'white' }}>
-                          {leaveBalance.days_taken} days
+                        <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.2)' }} />
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Annual Leave: {leaveBalance.annual_leave || 0} days
                         </Typography>
-                      </Box>
-                      <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }} />
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                          Days Remaining
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Sick Leave: {leaveBalance.sick_leave || 0} days
                         </Typography>
-                        <Typography variant="h6" sx={{ color: 'white' }}>
-                          {leaveBalance.days_remaining} days
+                        <Typography sx={{ color: 'white', mb: 1 }}>
+                          Casual Leave: {leaveBalance.casual_leave || 0} days
                         </Typography>
-                      </Box>
                     </Box>
                   ) : (
-                    <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                      No leave balance information available
-                    </Typography>
+                      <Typography sx={{ color: 'white' }}>No leave balance information available</Typography>
                   )}
                 </CardContent>
               </Card>
             </Grid>
           </Grid>
-        )}
 
-        {isHR && activeTab === 4 && renderAllEmployeesAttendance()}
+            <Paper sx={{ mt: 3, p: 3, bgcolor: 'rgba(255, 255, 255, 0.05)' }}>
+              <Typography variant="h6" sx={{ color: 'white', mb: 2 }}>Apply for Leave</Typography>
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              )}
+              <form onSubmit={handleLeaveSubmit}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      select
+                      label="Leave Type"
+                      value={newLeave.leave_type}
+                      onChange={(e) => setNewLeave(prev => ({ ...prev, leave_type: e.target.value }))}
+                      required
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                        },
+                        '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                      }}
+                    >
+                      <MenuItem value="annual">Annual Leave</MenuItem>
+                      <MenuItem value="sick">Sick Leave</MenuItem>
+                      <MenuItem value="casual">Casual Leave</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        label="Start Date"
+                        value={newLeave.start_date ? new Date(newLeave.start_date) : null}
+                        onChange={(newValue) => {
+                          setNewLeave(prev => ({
+                            ...prev,
+                            start_date: format(newValue, 'yyyy-MM-dd')
+                          }));
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            fullWidth
+                            required
+                            sx={{
+                              '& .MuiOutlinedInput-root': {
+                                color: 'white',
+                                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                                '& input': { color: 'white' },
+                              },
+                              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                              '& .MuiIconButton-root': { color: 'white' },
+                              '& .MuiInputBase-input': { color: 'white' },
+                              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.4)' },
+                              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                              '& .MuiButtonBase-root': { color: 'white' },
+                              '& .MuiSvgIcon-root': { color: 'white' },
+                              '& .MuiPickersInputBase-root': { color: 'white' },
+                              '& .MuiPickersInputBase-input': { color: 'white' },
+                              '& .MuiPickersSectionList-sectionContent': { color: 'white' },
+                              '& .MuiPickersSectionList-sectionSeparator': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionsContainer': { color: 'white' },
+                              '& .MuiPickersSectionList-root': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionContent': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionBefore': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionAfter': { color: 'white' },
+                            }}
+                          />
+                        )}
+                      />
+                    </LocalizationProvider>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        label="End Date"
+                        value={newLeave.end_date ? new Date(newLeave.end_date) : null}
+                        onChange={(newValue) => {
+                          setNewLeave(prev => ({
+                            ...prev,
+                            end_date: format(newValue, 'yyyy-MM-dd')
+                          }));
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            fullWidth
+                            required
+                            sx={{
+                              '& .MuiOutlinedInput-root': {
+                                color: 'white',
+                                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                                '& input': { color: 'white' },
+                              },
+                              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                              '& .MuiIconButton-root': { color: 'white' },
+                              '& .MuiInputBase-input': { color: 'white' },
+                              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.4)' },
+                              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                              '& .MuiButtonBase-root': { color: 'white' },
+                              '& .MuiSvgIcon-root': { color: 'white' },
+                              '& .MuiPickersInputBase-root': { color: 'white' },
+                              '& .MuiPickersInputBase-input': { color: 'white' },
+                              '& .MuiPickersSectionList-sectionContent': { color: 'white' },
+                              '& .MuiPickersSectionList-sectionSeparator': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionsContainer': { color: 'white' },
+                              '& .MuiPickersSectionList-root': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionContent': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionBefore': { color: 'white' },
+                              '& .MuiPickersInputBase-sectionAfter': { color: 'white' },
+                            }}
+                          />
+                        )}
+                      />
+                    </LocalizationProvider>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      label="Reason"
+                      value={newLeave.reason}
+                      onChange={(e) => setNewLeave(prev => ({ ...prev, reason: e.target.value }))}
+                      required
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                        },
+                        '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      disabled={loading}
+                      startIcon={<EventBusyIcon />}
+                      sx={{
+                        background: 'rgba(33, 150, 243, 0.2)',
+                        '&:hover': { background: 'rgba(33, 150, 243, 0.3)' },
+                      }}
+                    >
+                      {loading ? <CircularProgress size={24} /> : 'Submit Leave Request'}
+                    </Button>
+                  </Grid>
+                </Grid>
+              </form>
+            </Paper>
+
+            <Paper sx={{ mt: 3, bgcolor: 'rgba(255, 255, 255, 0.05)' }}>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Type</TableCell>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Start Date</TableCell>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>End Date</TableCell>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Status</TableCell>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Reason</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {leaveRequests.map((request) => (
+                      <TableRow key={request.id}>
+                        <TableCell sx={{ color: 'white' }}>{request.leave_type}</TableCell>
+                        <TableCell sx={{ color: 'white' }}>{request.start_date}</TableCell>
+                        <TableCell sx={{ color: 'white' }}>{request.end_date}</TableCell>
+                        <TableCell sx={{ color: 'white' }}>
+                          <Chip
+                            size="small"
+                            label={request.status}
+                            sx={{
+                              bgcolor: request.status === 'approved' ? 'rgba(76, 175, 80, 0.2)' :
+                                      request.status === 'rejected' ? 'rgba(244, 67, 54, 0.2)' :
+                                      'rgba(255, 152, 0, 0.2)',
+                              color: 'white',
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ color: 'white' }}>{request.reason}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          </Box>
+        )}
       </Container>
     </Box>
   );

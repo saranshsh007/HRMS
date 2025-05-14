@@ -3,17 +3,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.users import router as users_router, authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from app.routers.attendance import router as attendance_router
 from app.routers.leave import router as leave_router
-from app.routers.notifications import router as notifications_router
-from app.database.migrations import setup_database
+from app.routers.assets import router as assets_router
+from app.routers.policies import router as policies_router
+from setup_database import setup_database
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.database import get_db
 from datetime import timedelta
 import logging
-import os
+import osin
+import sys
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,  # Change to DEBUG for more verbose logging
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
@@ -23,14 +31,29 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add error handling middleware
+@app.middleware("http")
+async def log_requests(request, call_next):
+    logger.debug(f"Request: {request.method} {request.url}")
+    try:
+        response = await call_next(request)
+        logger.debug(f"Response status: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"Request failed: {str(e)}", exc_info=True)
+        raise
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
+    allow_origins=["*"],        # ✅ OK if allow_credentials is False
+    allow_credentials=False,    # ❗ Must be False
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
+
+
 
 # Add token endpoint at the app level
 @app.post("/api/token")
@@ -58,9 +81,10 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 # Include routers with /api prefix
 app.include_router(users_router, tags=["users"], prefix="/api")
-app.include_router(attendance_router, tags=["attendance"], prefix="/api/attendance")
-app.include_router(leave_router, tags=["leave"], prefix="/api/leave")
-app.include_router(notifications_router, tags=["notifications"], prefix="/api/notifications")
+app.include_router(attendance_router, tags=["attendance"], prefix="/api")
+app.include_router(leave_router, tags=["leave"], prefix="/api")
+app.include_router(assets_router, tags=["assets"], prefix="/api")
+app.include_router(policies_router, tags=["policies"], prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
@@ -70,7 +94,8 @@ async def startup_event():
         setup_database()
         logger.info("Database setup completed successfully!")
     except Exception as e:
-        logger.error(f"Error during startup: {str(e)}")
+        logger.error(f"Error during startup: {str(e)}", exc_info=True)
+        raise  # Re-raise the exception to prevent the application from starting with a broken database
 
 @app.get("/")
 async def root():
@@ -80,7 +105,7 @@ if __name__ == "__main__":
     import uvicorn
     
     # Create any required directories
-    database_path = os.path.dirname("app/database/hrms.db")
+    database_path = os.path.dirname(os.path.abspath(__file__))
     if not os.path.exists(database_path):
         os.makedirs(database_path, exist_ok=True)
         

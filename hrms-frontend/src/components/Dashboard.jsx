@@ -22,6 +22,9 @@ import {
   TrendingUp as TrendingUpIcon,
   EventNote as EventIcon,
   ExitToApp as ExitToAppIcon,
+  Inventory as InventoryIcon,
+  Description as DescriptionIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import { Line } from 'react-chartjs-2';
 import {
@@ -92,12 +95,12 @@ const Dashboard = () => {
   const [success, setSuccess] = useState(null);
   const theme = useTheme();
   const navigate = useNavigate();
-  const userRole = localStorage.getItem('userRole');
+  const userRole = localStorage.getItem('userRole')?.toLowerCase();
   const userId = localStorage.getItem('userId');
 
   useEffect(() => {
     fetchSummary();
-    if (userRole === 'HR') {
+    if (userRole === 'hr') {
       fetchAllAttendanceRecords();
       fetchAllLeaveRequests();
     }
@@ -106,12 +109,27 @@ const Dashboard = () => {
   const fetchSummary = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/attendance/summary`);
-      setSummary(response.data);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/attendance/summary`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Ensure we have a valid response with default values
+      setSummary({
+        total_present: response.data?.total_present || 0,
+        absentee_percentage: response.data?.absentee_percentage || 0,
+        monthly_working_hours: response.data?.monthly_working_hours || {}
+      });
       setError(null);
     } catch (error) {
-      setError('Failed to fetch attendance summary: ' + error.message);
       console.error('Error fetching summary:', error);
+      setError('Failed to fetch attendance summary: ' + error.message);
+      // Set default values when there's an error
+      setSummary({
+        total_present: 0,
+        absentee_percentage: 0,
+        monthly_working_hours: {}
+      });
     } finally {
       setLoading(false);
     }
@@ -140,9 +158,13 @@ const Dashboard = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
+      console.log('Fetching leave requests with token:', token ? 'Token exists' : 'No token');
+      
       const endpoint = status === 'all' 
         ? `${API_BASE_URL}/leave/all-requests`
         : `${API_BASE_URL}/leave/all-requests?status=${status}`;
+      
+      console.log('Fetching from endpoint:', endpoint);
         
       const response = await axios.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` }
@@ -152,9 +174,15 @@ const Dashboard = () => {
       
       // Count pending leave requests
       const pendingRequests = response.data.filter(req => req.status === 'pending');
+      console.log('Pending requests:', pendingRequests);
       setPendingLeaveCount(pendingRequests.length);
     } catch (error) {
       console.error('Error fetching leave requests:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       setError(error.response?.data?.detail || 'Failed to fetch leave requests');
     } finally {
       setLoading(false);
@@ -255,11 +283,11 @@ const Dashboard = () => {
   }
 
   const chartData = {
-    labels: Object.keys(summary.monthly_working_hours).map(id => `Employee ${id}`),
+    labels: summary?.monthly_working_hours ? Object.keys(summary.monthly_working_hours).map(id => `Employee ${id}`) : [],
     datasets: [
       {
         label: 'Monthly Working Hours',
-        data: Object.values(summary.monthly_working_hours),
+        data: summary?.monthly_working_hours ? Object.values(summary.monthly_working_hours) : [],
         borderColor: 'rgba(255, 255, 255, 0.8)',
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         tension: 0.4,
@@ -296,6 +324,98 @@ const Dashboard = () => {
     },
   };
 
+  // Navigation cards
+  const renderNavigationCards = () => (
+    <Grid container spacing={3} sx={{ mt: 2 }}>
+      <Grid item xs={12} sm={6} md={4}>
+        <Card
+          component={RouterLink}
+          to="/user-management"
+          sx={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 2,
+            height: '100%',
+            textDecoration: 'none',
+            transition: 'transform 0.2s',
+            '&:hover': {
+              transform: 'scale(1.02)',
+              background: 'rgba(255, 255, 255, 0.15)',
+            },
+          }}
+        >
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <PeopleIcon sx={{ color: 'white', mr: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white' }}>
+                User Management
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+      
+      <Grid item xs={12} sm={6} md={4}>
+        <Card
+          component={RouterLink}
+          to="/attendance"
+          sx={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 2,
+            height: '100%',
+            textDecoration: 'none',
+            transition: 'transform 0.2s',
+            '&:hover': {
+              transform: 'scale(1.02)',
+              background: 'rgba(255, 255, 255, 0.15)',
+            },
+          }}
+        >
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <PersonIcon sx={{ color: 'white', mr: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white' }}>
+                Personal Information
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      <Grid item xs={12} sm={6} md={4}>
+        <Card
+          component={RouterLink}
+          to="/employee-leave-requests"
+          sx={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 2,
+            height: '100%',
+            textDecoration: 'none',
+            transition: 'transform 0.2s',
+            '&:hover': {
+              transform: 'scale(1.02)',
+              background: 'rgba(255, 255, 255, 0.15)',
+            },
+          }}
+        >
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <EventIcon sx={{ color: 'white', mr: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white' }}>
+                Leave Requests
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+    </Grid>
+  );
+
   // HR dashboard view with tabs
   const renderHRDashboard = () => (
     <>
@@ -303,369 +423,14 @@ const Dashboard = () => {
       <Grid container spacing={3}>
         {summary && renderSummaryCards()}
       </Grid>
-
-      {/* Quick Access Cards */}
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h5" sx={{ color: 'white', mb: 2 }}>
-          Quick Access
-        </Typography>
-        <Grid container spacing={3}>
-          <Grid item xs={12} sm={6} md={4}>
-            <Paper sx={{ 
-              p: 3, 
-              background: 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)', 
-              borderRadius: 2,
-              height: '100%',
-              transition: 'all 0.3s',
-              '&:hover': {
-                transform: 'translateY(-5px)',
-                boxShadow: '0 10px 20px rgba(0,0,0,0.2)'
-              }
-            }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ 
-                  bgcolor: 'rgba(255, 152, 0, 0.2)', 
-                  borderRadius: '50%', 
-                  width: 70, 
-                  height: 70, 
-                  display: 'flex', 
-                  justifyContent: 'center', 
-                  alignItems: 'center',
-                  margin: '0 auto 16px'
-                }}>
-                  <EventIcon sx={{ fontSize: 40, color: 'white' }} />
-                </Box>
-                <Typography variant="h6" sx={{ color: 'white', mb: 2 }}>
-                  Employee Leave Requests
-                </Typography>
-                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 3 }}>
-                  View and manage all employee leave requests. Approve or reject pending requests.
-                </Typography>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  component={RouterLink}
-                  to="/employee-leave-requests"
-                  sx={{
-                    background: 'rgba(255, 152, 0, 0.3)',
-                    '&:hover': { background: 'rgba(255, 152, 0, 0.4)' },
-                    color: 'white'
-                  }}
-                >
-                  Employee Leave Requests
-                  {pendingLeaveCount > 0 && (
-                    <Badge 
-                      color="error" 
-                      badgeContent={pendingLeaveCount} 
-                      sx={{ ml: 1 }}
-                    />
-                  )}
-                </Button>
-              </Box>
-            </Paper>
-          </Grid>
-          
-          {/* Other quick access cards can be added here */}
-        </Grid>
-      </Box>
-
-      {/* Attendance Records Table */}
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h5" sx={{ color: 'white', mb: 2 }}>
-          Today's Attendance
-        </Typography>
-        {renderAttendanceTable()}
-      </Box>
-
-      {/* Recent Leave Requests */}
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h5" sx={{ color: 'white', mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Recent Leave Requests</span>
-          <Button 
-            variant="text" 
-            component={RouterLink} 
-            to="/employee-leave-requests" 
-            sx={{ color: 'white' }}
-          >
-            View All
-          </Button>
-        </Typography>
-        {renderLeaveRequestsTable(true)}
-      </Box>
-
-      {/* Navigation cards */}
-      {renderNavigationCards()}
+      {/* Removing navigation cards section */}
     </>
-  );
-
-  // Leave requests table (used in both tabs)
-  const renderLeaveRequestsTable = (limitRows = false) => {
-    const displayRequests = limitRows ? leaveRequests.slice(0, 5) : leaveRequests;
-    
-    return (
-      <Paper sx={{ 
-        p: 2, 
-        background: 'rgba(255, 255, 255, 0.1)',
-        backdropFilter: 'blur(10px)', 
-        borderRadius: 2,
-        overflowX: 'auto'
-      }}>
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-            <CircularProgress sx={{ color: 'white' }} />
-          </Box>
-        ) : (
-          <>
-            {/* Success message */}
-            {success && (
-              <Alert 
-                severity="success" 
-                sx={{ mb: 2, bgcolor: 'rgba(76, 175, 80, 0.1)', color: 'white' }}
-                onClose={() => setSuccess(null)}
-              >
-                {success}
-              </Alert>
-            )}
-            
-            {/* Error message */}
-            {error && (
-              <Alert 
-                severity="error" 
-                sx={{ mb: 2, bgcolor: 'rgba(244, 67, 54, 0.1)', color: 'white' }}
-                onClose={() => setError(null)}
-              >
-                {error}
-              </Alert>
-            )}
-            
-            <Box component="table" sx={{ 
-              width: '100%', 
-              borderCollapse: 'collapse',
-              color: 'white'
-            }}>
-              <Box component="thead">
-                <Box component="tr" sx={{ 
-                  borderBottom: '1px solid rgba(255, 255, 255, 0.2)'
-                }}>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Employee</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Leave Type</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>From</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>To</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Status</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Reason</Box>
-                  <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Actions</Box>
-                </Box>
-              </Box>
-              <Box component="tbody">
-                {displayRequests.length > 0 ? (
-                  displayRequests.map((request) => (
-                    <Box 
-                      component="tr" 
-                      key={request.id}
-                      sx={{ 
-                        '&:nth-of-type(odd)': { 
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)' 
-                        },
-                        '&:hover': { 
-                          backgroundColor: 'rgba(255, 255, 255, 0.1)' 
-                        }
-                      }}
-                    >
-                      <Box component="td" sx={{ p: 2 }}>{request.employee_name}</Box>
-                      <Box component="td" sx={{ p: 2, textTransform: 'capitalize' }}>{request.leave_type}</Box>
-                      <Box component="td" sx={{ p: 2 }}>{request.start_date}</Box>
-                      <Box component="td" sx={{ p: 2 }}>{request.end_date}</Box>
-                      <Box component="td" sx={{ p: 2 }}>
-                        <Box 
-                          component="span" 
-                          sx={{ 
-                            p: '2px 8px', 
-                            borderRadius: '4px', 
-                            background: request.status === 'approved' 
-                              ? 'rgba(76, 175, 80, 0.2)' 
-                              : request.status === 'rejected'
-                              ? 'rgba(244, 67, 54, 0.2)'
-                              : 'rgba(255, 152, 0, 0.2)',
-                            textTransform: 'capitalize'
-                          }}
-                        >
-                          {request.status}
-                        </Box>
-                      </Box>
-                      <Box component="td" sx={{ p: 2 }}>{request.reason}</Box>
-                      <Box component="td" sx={{ p: 2 }}>
-                        {request.status === 'pending' && (
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Button
-                              size="small"
-                              sx={{
-                                bgcolor: 'rgba(76, 175, 80, 0.2)',
-                                color: 'white',
-                                '&:hover': { bgcolor: 'rgba(76, 175, 80, 0.3)' }
-                              }}
-                              onClick={() => handleApproveLeave(request.id)}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="small"
-                              sx={{
-                                bgcolor: 'rgba(244, 67, 54, 0.2)',
-                                color: 'white',
-                                '&:hover': { bgcolor: 'rgba(244, 67, 54, 0.3)' }
-                              }}
-                              onClick={() => handleRejectLeave(request.id)}
-                            >
-                              Reject
-                            </Button>
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  ))
-                ) : (
-                  <Box component="tr">
-                    <Box component="td" colSpan={7} sx={{ p: 2, textAlign: 'center' }}>
-                      No leave requests found
-                    </Box>
-                  </Box>
-                )}
-              </Box>
-            </Box>
-            
-            {/* "View All" button if showing limited rows */}
-            {limitRows && leaveRequests.length > 5 && (
-              <Box sx={{ mt: 2, textAlign: 'right' }}>
-                <Button 
-                  onClick={() => setActiveTab('leaveRequests')}
-                  sx={{ color: 'white' }}
-                >
-                  View All
-                </Button>
-              </Box>
-            )}
-          </>
-        )}
-      </Paper>
-    );
-  };
-
-  // Render the attendance table
-  const renderAttendanceTable = () => (
-    <Paper sx={{ 
-      p: 2, 
-      background: 'rgba(255, 255, 255, 0.1)',
-      backdropFilter: 'blur(10px)', 
-      borderRadius: 2,
-      overflowX: 'auto'
-    }}>
-      <Box component="table" sx={{ 
-        width: '100%', 
-        borderCollapse: 'collapse',
-        color: 'white'
-      }}>
-        <Box component="thead">
-          <Box component="tr" sx={{ 
-            borderBottom: '1px solid rgba(255, 255, 255, 0.2)'
-          }}>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Employee ID</Box>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Name</Box>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Check In</Box>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Check Out</Box>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Status</Box>
-            <Box component="th" sx={{ p: 2, textAlign: 'left' }}>Remarks</Box>
-          </Box>
-        </Box>
-        <Box component="tbody">
-          {attendanceRecords.length > 0 ? (
-            attendanceRecords.map((record) => (
-              <Box 
-                component="tr" 
-                key={record.id}
-                sx={{ 
-                  '&:nth-of-type(odd)': { 
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)' 
-                  },
-                  '&:hover': { 
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)' 
-                  }
-                }}
-              >
-                <Box component="td" sx={{ p: 2 }}>{record.employee_id}</Box>
-                <Box component="td" sx={{ p: 2 }}>{record.employee_name}</Box>
-                <Box component="td" sx={{ p: 2 }}>
-                  {record.check_in}
-                  {record.late_entry && (
-                    <Box 
-                      component="span" 
-                      sx={{ 
-                        ml: 1, 
-                        p: '2px 6px', 
-                        borderRadius: '4px', 
-                        background: 'rgba(255, 152, 0, 0.2)', 
-                        fontSize: '0.75rem' 
-                      }}
-                    >
-                      Late
-                    </Box>
-                  )}
-                </Box>
-                <Box component="td" sx={{ p: 2 }}>
-                  {record.check_out}
-                  {record.early_exit && (
-                    <Box 
-                      component="span" 
-                      sx={{ 
-                        ml: 1, 
-                        p: '2px 6px', 
-                        borderRadius: '4px', 
-                        background: 'rgba(33, 150, 243, 0.2)', 
-                        fontSize: '0.75rem' 
-                      }}
-                    >
-                      Early
-                    </Box>
-                  )}
-                </Box>
-                <Box component="td" sx={{ p: 2 }}>
-                  <Box 
-                    component="span" 
-                    sx={{ 
-                      p: '2px 8px', 
-                      borderRadius: '4px', 
-                      background: record.status === 'present' 
-                        ? 'rgba(76, 175, 80, 0.2)' 
-                        : 'rgba(244, 67, 54, 0.2)',
-                      textTransform: 'capitalize'
-                    }}
-                  >
-                    {record.status}
-                  </Box>
-                </Box>
-                <Box component="td" sx={{ p: 2 }}>
-                  {!record.check_in && !record.check_out ? 'Not logged in' : 
-                   record.check_in && !record.check_out ? 'Not checked out' : 
-                   'Complete'}
-                </Box>
-              </Box>
-            ))
-          ) : (
-            <Box component="tr">
-              <Box component="td" colSpan={6} sx={{ p: 2, textAlign: 'center' }}>
-                No attendance records found for today
-              </Box>
-            </Box>
-          )}
-        </Box>
-      </Box>
-    </Paper>
   );
 
   // Summary cards for dashboard
   const renderSummaryCards = () => (
     <>
-      <Grid item xs={12} sm={6} md={3}>
+      <Grid item xs={12} sm={6} md={6}>
         <StyledCard
           title="Total Present Today"
           value={summary?.total_present || 0}
@@ -673,116 +438,15 @@ const Dashboard = () => {
           color="rgba(76, 175, 80, 0.2)"
         />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
+      <Grid item xs={12} sm={6} md={6}>
         <StyledCard
           title="Absentee Percentage"
-          value={`${summary?.absentee_percentage?.toFixed(1) || 0}%`}
+          value={`${(summary?.absentee_percentage || 0).toFixed(1)}%`}
           icon={<TimeIcon sx={{ color: 'white' }} />}
           color="rgba(244, 67, 54, 0.2)"
         />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <StyledCard
-          title="Late Arrivals"
-          value={summary?.late_arrivals || 0}
-          icon={<TrendingUpIcon sx={{ color: 'white' }} />}
-          color="rgba(255, 152, 0, 0.2)"
-        />
-      </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <StyledCard
-          title="Early Exits"
-          value={summary?.early_exits || 0}
-          icon={<EventIcon sx={{ color: 'white' }} />}
-          color="rgba(33, 150, 243, 0.2)"
-        />
-      </Grid>
     </>
-  );
-
-  // Navigation cards
-  const renderNavigationCards = () => (
-    <Grid container spacing={2} sx={{ mt: 3 }}>
-      {/* HR-only navigation */}
-      {userRole === 'HR' && (
-        <>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card 
-              component={RouterLink} 
-              to="/user-management"
-              sx={{
-                textDecoration: 'none',
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 2,
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'scale(1.02)',
-                },
-              }}
-            >
-              <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', py: 4 }}>
-                <PeopleIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-                <Typography variant="h6" sx={{ color: 'white' }}>
-                  User Management
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card 
-              component={RouterLink} 
-              to="/employee-leave-requests"
-              sx={{
-                textDecoration: 'none',
-                background: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 2,
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'scale(1.02)',
-                },
-              }}
-            >
-              <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', py: 4 }}>
-                <EventIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-                <Typography variant="h6" sx={{ color: 'white' }}>
-                  Leave Requests
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </>
-      )}
-
-      {/* Navigation common to all roles */}
-      <Grid item xs={12} sm={6} md={3}>
-        <Card 
-          component={RouterLink} 
-          to="/attendance"
-          sx={{
-            textDecoration: 'none',
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: 2,
-            transition: 'transform 0.2s',
-            '&:hover': {
-              transform: 'scale(1.02)',
-            },
-          }}
-        >
-          <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', py: 4 }}>
-            <TimeIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-            <Typography variant="h6" sx={{ color: 'white' }}>
-              {userRole === 'HR' ? 'Attendance Management' : 'My Attendance'}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
   );
 
   return (
@@ -801,46 +465,6 @@ const Dashboard = () => {
           <Typography variant="h4" sx={{ color: 'white', fontWeight: 'bold' }}>
             Dashboard
           </Typography>
-          
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            {userRole === 'HR' && (
-              <Button 
-                variant="contained"
-                component={RouterLink}
-                to="/employee-leave-requests"
-                sx={{ 
-                  background: 'rgba(255, 152, 0, 0.2)',
-                  color: 'white', 
-                  '&:hover': {
-                    background: 'rgba(255, 152, 0, 0.3)',
-                  },
-                }}
-              >
-                Employee Leave Requests
-                {pendingLeaveCount > 0 && (
-                  <Badge 
-                    color="error" 
-                    badgeContent={pendingLeaveCount} 
-                    sx={{ ml: 1 }}
-                  />
-                )}
-              </Button>
-            )}
-            <Button 
-              variant="contained"
-              onClick={handleLogout}
-              startIcon={<ExitToAppIcon />}
-              sx={{ 
-                background: 'rgba(244, 67, 54, 0.2)',
-                color: 'white', 
-                '&:hover': {
-                  background: 'rgba(244, 67, 54, 0.3)',
-                },
-              }}
-            >
-              Logout
-            </Button>
-          </Box>
         </Box>
 
         {success && (
@@ -870,16 +494,13 @@ const Dashboard = () => {
         )}
 
         {!loading && (
-          userRole === 'HR' ? renderHRDashboard() : (
+          userRole === 'hr' ? renderHRDashboard() : (
             // Regular employee dashboard
             <>
               {/* Summary Cards */}
               <Grid container spacing={3}>
                 {summary && renderSummaryCards()}
               </Grid>
-
-              {/* Navigation cards for employees */}
-              {renderNavigationCards()}
             </>
           )
         )}

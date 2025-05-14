@@ -1,11 +1,13 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
 from typing import Optional, List
 from datetime import date, time, datetime
+from .models import UserRole
 
 class UserBase(BaseModel):
     email: EmailStr
     role: str
     full_name: Optional[str] = None
+    # Business identifier (e.g., "EMP001")
     employee_id: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -13,6 +15,12 @@ class UserBase(BaseModel):
     department: Optional[str] = None
     position: Optional[str] = None
     hire_date: Optional[date] = None
+
+    @field_validator('hire_date', mode='before')
+    def parse_hire_date(cls, value):
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
 class UserCreate(UserBase):
     password: str
@@ -22,6 +30,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
+    # Business identifier (e.g., "EMP001")
     employee_id: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -30,12 +39,31 @@ class UserUpdate(BaseModel):
     position: Optional[str] = None
     hire_date: Optional[date] = None
 
-class User(UserBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
+    @field_validator('hire_date', mode='before')
+    def parse_hire_date(cls, value):
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
-    model_config = ConfigDict(from_attributes=True)
+class User(UserBase):
+    # Primary key for database relationships
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None,
+            date: lambda v: v.isoformat() if v else None
+        }
+    )
+
+    @classmethod
+    def from_orm(cls, obj):
+        if hasattr(obj, 'to_dict'):
+            return cls(**obj.to_dict())
+        return super().from_orm(obj)
 
 class Token(BaseModel):
     access_token: str
@@ -45,6 +73,7 @@ class TokenData(BaseModel):
     email: Optional[str] = None
 
 class AttendanceBase(BaseModel):
+    # Primary key of the user (not employee_id)
     employee_id: int
     date: date
     check_in: Optional[time] = None
@@ -84,6 +113,7 @@ class AttendanceSummary(BaseModel):
     monthly_working_hours: List[dict]
 
 class LeaveRequestBase(BaseModel):
+    # Primary key of the user (not employee_id)
     employee_id: int
     leave_type: str
     start_date: date
@@ -102,6 +132,7 @@ class LeaveRequest(LeaveRequestBase):
     model_config = ConfigDict(from_attributes=True)
 
 class LeaveBalanceBase(BaseModel):
+    # Primary key of the user (not employee_id)
     employee_id: int
     annual_leave: float
     sick_leave: float
@@ -119,22 +150,76 @@ class LeaveBalanceDB(LeaveBalanceBase):
 
 class LeaveBalance(BaseModel):
     employee_id: int
-    total_days: int
-    days_taken: int
-    days_remaining: int
-
+    total_days: float
+    days_taken: float
+    days_remaining: float
+    annual_leave: float
+    sick_leave: float
+    casual_leave: float
+    
     model_config = ConfigDict(from_attributes=True)
 
-class NotificationBase(BaseModel):
-    message: str
-    
-class NotificationCreate(NotificationBase):
-    user_id: int
-    
-class Notification(NotificationBase):
+class AssetBase(BaseModel):
+    asset_name: str
+    category: str
+    department: Optional[str] = None
+    condition: Optional[str] = None
+    purchase_date: Optional[date] = None
+    warranty_expiry: Optional[date] = None
+    maintenance_schedule: Optional[date] = None
+    notes: Optional[str] = None
+    assigned_to: Optional[int] = None
+    user_id: Optional[int] = None
+
+    @field_validator('purchase_date', 'warranty_expiry', 'maintenance_schedule', mode='before')
+    def parse_date(cls, value):
+        if isinstance(value, datetime):
+            return value.date()
+        return value
+
+class AssetCreate(AssetBase):
+    pass
+
+class AssetUpdate(AssetBase):
+    pass
+
+class Asset(AssetBase):
     id: int
-    user_id: int
-    read: bool
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True) 
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None,
+            date: lambda v: v.isoformat() if v else None
+        }
+    )
+
+class PolicyBase(BaseModel):
+    title: str
+    description: str
+    content: str
+    category: str
+    effective_date: date
+    expiry_date: Optional[date] = None
+
+class PolicyCreate(PolicyBase):
+    pass
+
+class PolicyUpdate(PolicyBase):
+    pass
+
+class Policy(PolicyBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: int
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None,
+            date: lambda v: v.isoformat() if v else None
+        }
+    ) 
