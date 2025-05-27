@@ -1,52 +1,59 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import CardActions from '@mui/material/CardActions';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EmailIcon from '@mui/icons-material/Email';
-import PhoneIcon from '@mui/icons-material/Phone';
-import BusinessIcon from '@mui/icons-material/Business';
-import WorkIcon from '@mui/icons-material/Work';
-import EventIcon from '@mui/icons-material/Event';
-import Avatar from '@mui/material/Avatar';
-import { styled } from '@mui/material/styles';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Grid from '@mui/material/Grid';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
-import InputAdornment from '@mui/material/InputAdornment';
-import PersonIcon from '@mui/icons-material/Person';
-import BadgeIcon from '@mui/icons-material/Badge';
-import { useNavigate } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
-
-const StyledCard = styled(Card)(({ theme }) => ({
-  maxWidth: 300,
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  transition: 'transform 0.2s',
-  '&:hover': {
-    transform: 'scale(1.02)',
-  },
-  background: 'rgba(255, 255, 255, 0.1)',
-  backdropFilter: 'blur(10px)',
-  border: '1px solid rgba(255, 255, 255, 0.2)',
-}));
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import {
+  Box,
+  Container,
+  Typography,
+  Button,
+  Card,
+  CardContent,
+  Grid,
+  TextField,
+  CircularProgress,
+  Paper,
+  Alert,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  InputAdornment,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Avatar,
+  Divider,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Breadcrumbs,
+  Badge,
+  Tooltip,
+  Chip,
+} from '@mui/material';
+import {
+  Person as PersonIcon,
+  Email as EmailIcon,
+  Phone as PhoneIcon,
+  Business as BusinessIcon,
+  Work as WorkIcon,
+  Event as EventIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  ArrowBack as ArrowBackIcon,
+  ExitToApp as ExitToAppIcon,
+  Badge as BadgeIcon,
+  NavigateNext as NavigateNextIcon,
+  AdminPanelSettings as AdminIcon,
+  Person as EmployeeIcon,
+} from '@mui/icons-material';
+import { useAuth } from '../contexts/AuthContext';
 
 const departments = [
   "Software Development",
@@ -137,6 +144,8 @@ axios.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Add timeout and retry configuration
+    config.timeout = 10000; // 10 seconds timeout
     return config;
   },
   (error) => {
@@ -144,16 +153,26 @@ axios.interceptors.request.use(
   }
 );
 
-// Add response interceptor to handle token expiration
+// Add response interceptor to handle token expiration and connection issues
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.code === 'ECONNABORTED') {
+      console.error('Request timeout - server might be down');
+      return Promise.reject(new Error('Request timeout - please check your connection'));
+    }
+    
+    if (!error.response) {
+      console.error('Network error - no response from server');
+      return Promise.reject(new Error('Network error - please check your connection'));
+    }
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('userRole');
       localStorage.removeItem('userId');
-      window.location.href = '/';
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -163,648 +182,261 @@ const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showForm, setShowForm] = useState(false);
+  const [success, setSuccess] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [formData, setFormData] = useState({
     email: '',
     full_name: '',
     role: 'employee',
-    password: '',
     employee_id: '',
     first_name: '',
     last_name: '',
-    phone: '',
     department: '',
     position: '',
-    hire_date: new Date().toISOString().split('T')[0]
+    password: ''
   });
-  const [editingUserId, setEditingUserId] = useState(null);
-  const [formErrors, setFormErrors] = useState({});
-  const [availablePositions, setAvailablePositions] = useState([]);
+  const { token } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  useEffect(() => {
-    if (formData.department) {
-      setAvailablePositions(positions[formData.department] || []);
-    } else {
-      setAvailablePositions([]);
-    }
-  }, [formData.department]);
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      // Get token from localStorage
       const token = localStorage.getItem('token');
       if (!token) {
-        throw new Error('No authentication token found');
+        setError('Authentication token not found. Please login again.');
+        setLoading(false);
+        navigate('/login');
+        return;
       }
 
+      console.log('Fetching users with token:', token);
       const response = await axios.get(`${API_BASE_URL}/users/`, {
         headers: {
-          'Authorization': `Bearer ${token}`
-        }
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000 // 10 second timeout
       });
+      
+      console.log('Users response:', response.data);
       setUsers(response.data);
-      setError(null);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      if (error.response?.status === 401) {
-        setError('Your session has expired. Please log in again.');
-      } else if (error.response?.status === 403) {
-        setError('You do not have permission to access this page.');
-      } else {
-        setError('Failed to fetch users: ' + (error.response?.data?.detail || error.message));
-      }
-    } finally {
       setLoading(false);
+    } catch (error) {
+      console.error('Error details:', error.response?.data || error.message);
+      setError(error.response?.data?.detail || 'Error fetching users: ' + (error.message || 'Unknown error'));
+      setLoading(false);
+      
+      // Handle token expiration
+      if (error.response?.status === 401) {
+        console.log('Token expired or invalid, redirecting to login');
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+  useEffect(() => {
+    fetchUsers();
+  }, [token]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setFormErrors({});
-    
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      // Prepare data for backend
-      const backendData = {
-        email: formData.email,
-        full_name: formData.full_name,
-        role: formData.role,
-        password: formData.password,
-        employee_id: formData.employee_id,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        phone: formData.phone,
-        department: formData.department,
-        position: formData.position,
-        hire_date: formData.hire_date
-      };
-
-      const headers = {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      };
-
-      if (editingUserId) {
-        await axios.put(`${API_BASE_URL}/users/${editingUserId}`, backendData, { headers });
-      } else {
-        await axios.post(`${API_BASE_URL}/users/`, backendData, { headers });
-      }
-      setShowForm(false);
-      setEditingUserId(null);
+  const handleAdd = () => {
       setFormData({
         email: '',
         full_name: '',
         role: 'employee',
-        password: '',
         employee_id: '',
         first_name: '',
         last_name: '',
-        phone: '',
         department: '',
         position: '',
-        hire_date: new Date().toISOString().split('T')[0]
-      });
-      fetchUsers();
-    } catch (error) {
-      console.error('Error saving user:', error.response?.data || error.message);
-      
-      if (error.response?.status === 401) {
-        setError('Your session has expired. Please log in again.');
-      } else if (error.response?.status === 403) {
-        setError('You do not have permission to perform this action.');
-      } else if (error.response?.data?.detail) {
-        // Handle validation errors
-        if (Array.isArray(error.response.data.detail)) {
-          const errors = {};
-          error.response.data.detail.forEach(err => {
-            if (err.loc && err.loc.length > 1) {
-              const field = err.loc[1]; // Get the field name
-              errors[field] = err.msg;
-            }
-          });
-          setFormErrors(errors);
-        } else {
-          // Handle other error messages
-          setError(error.response.data.detail);
-        }
-      } else {
-        setError('Failed to save user: ' + error.message);
-      }
-    }
+      password: ''
+    });
+    setShowAddModal(true);
   };
 
   const handleEdit = (user) => {
-    setEditingUserId(user.id);
+    setSelectedUser(user);
     setFormData({
       email: user.email,
       full_name: user.full_name,
       role: user.role,
-      password: '', // Don't set password when editing
-      employee_id: user.employee_id || '',
-      first_name: user.first_name || '',
-      last_name: user.last_name || '',
-      phone: user.phone || '',
-      department: user.department || '',
-      position: user.position || '',
-      hire_date: user.hire_date || new Date().toISOString().split('T')[0]
+      employee_id: user.employee_id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      department: user.department,
+      position: user.position,
+      password: ''
     });
-    setShowForm(true);
+    setShowEditModal(true);
   };
 
   const handleDelete = async (userId) => {
     if (window.confirm('Are you sure you want to delete this user?')) {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          throw new Error('No authentication token found');
-        }
-
         await axios.delete(`${API_BASE_URL}/users/${userId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          headers: { Authorization: `Bearer ${token}` }
         });
-        fetchUsers();
-      } catch (error) {
-        console.error('Error deleting user:', error);
-        if (error.response?.status === 401) {
-          setError('Your session has expired. Please log in again.');
-        } else if (error.response?.status === 403) {
-          setError('You do not have permission to delete users.');
-        } else {
-          setError('Failed to delete user: ' + (error.response?.data?.detail || error.message));
-        }
+        setUsers(users.filter(user => user.id !== userId));
+        setSuccess('User deleted successfully');
+      } catch (err) {
+        setError('Failed to delete user');
       }
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (showEditModal) {
+        await axios.put(`${API_BASE_URL}/users/${selectedUser.id}`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setUsers(users.map(user => 
+          user.id === selectedUser.id ? { ...user, ...formData } : user
+        ));
+        setSuccess('User updated successfully');
+      } else {
+        const response = await axios.post(`${API_BASE_URL}/users/`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setUsers([...users, response.data]);
+        setSuccess('User added successfully');
+      }
+      setShowAddModal(false);
+      setShowEditModal(false);
+      setFormData({
+        email: '',
+        full_name: '',
+        role: 'employee',
+        employee_id: '',
+        first_name: '',
+        last_name: '',
+        department: '',
+        position: '',
+        password: ''
+      });
+    } catch (err) {
+      setError('Failed to save user');
     }
   };
 
   if (loading) {
     return (
       <Box sx={{ 
+        minHeight: '100vh',
+        py: 4,
+        background: 'linear-gradient(135deg, #1a237e 0%, #283593 100%)',
         display: 'flex', 
         justifyContent: 'center', 
-        alignItems: 'center', 
-        minHeight: '100vh',
-        width: '100vw',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        background: 'linear-gradient(135deg, #1a237e 0%, #4a148c 50%, #880e4f 100%)'
+        alignItems: 'center'
       }}>
-        <div className="animate-spin rounded-full h-20 w-20 border-t-4 border-b-4 border-white"></div>
+        <CircularProgress sx={{ color: 'white' }} />
       </Box>
     );
   }
 
-  if (error) {
-    return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        minHeight: '100vh',
-        width: '100vw',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        background: 'linear-gradient(135deg, #1a237e 0%, #4a148c 50%, #880e4f 100%)'
-      }}>
-        <Typography variant="h6" color="error">
-          {error}
-        </Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ 
-      minHeight: '100vh',
-      width: '100vw',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      overflowY: 'auto',
-      background: 'linear-gradient(135deg, #1a237e 0%, #4a148c 50%, #880e4f 100%)',
-      py: 4
-    }}>
-      <Container maxWidth="xl">
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          mb: 4 
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <IconButton
-              onClick={() => navigate('/dashboard')}
-              sx={{
-                color: 'white',
-                background: 'rgba(255, 255, 255, 0.1)',
-                '&:hover': {
-                  background: 'rgba(255, 255, 255, 0.2)',
-                },
-              }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <Typography variant="h4" component="h1" sx={{ color: 'white', fontWeight: 'bold' }}>
-              User Management
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            onClick={() => {
-              setShowForm(true);
-              setEditingUserId(null);
-              setFormData({
-                email: '',
-                full_name: '',
-                role: 'employee',
-                password: '',
-                employee_id: '',
-                first_name: '',
-                last_name: '',
-                phone: '',
-                department: '',
-                position: '',
-                hire_date: new Date().toISOString().split('T')[0]
-              });
-            }}
-            sx={{
-              background: 'rgba(255, 255, 255, 0.2)',
-              '&:hover': {
-                background: 'rgba(255, 255, 255, 0.3)',
-              },
-            }}
-          >
-            Add New User
-          </Button>
-        </Box>
-
-        {showForm && (
+  const renderModal = (isEdit = false) => (
           <Dialog
-            open={showForm}
-            onClose={() => {
-              setShowForm(false);
-              setFormErrors({});
-            }}
-            maxWidth="sm"
-            fullWidth
+      open={isEdit ? showEditModal : showAddModal} 
+      onClose={() => isEdit ? setShowEditModal(false) : setShowAddModal(false)}
             PaperProps={{
               sx: {
-                background: 'rgba(255, 255, 255, 0.1)',
+          background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 2,
               }
             }}
           >
-            <DialogTitle sx={{ 
-              color: 'white',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-              pb: 2
-            }}>
-              {editingUserId ? 'Edit User' : 'Add New User'}
-            </DialogTitle>
-            <DialogContent sx={{ pt: 3 }}>
-              <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
+      <DialogTitle>{isEdit ? 'Edit User' : 'Add New User'}</DialogTitle>
+      <DialogContent>
+        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
                     <TextField
-                      required
                       fullWidth
                       label="Email"
-                      name="email"
                       type="email"
                       value={formData.email}
-                      onChange={handleInputChange}
-                      error={!!formErrors.email}
-                      helperText={formErrors.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            margin="normal"
+            required
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <EmailIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                  <EmailIcon />
                           </InputAdornment>
                         ),
                       }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: formErrors.email ? 'error.main' : 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: formErrors.email ? 'error.main' : 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: formErrors.email ? 'error.main' : 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        '& .MuiFormHelperText-root': {
-                          color: 'error.main',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
+          />
                     <TextField
-                      required
                       fullWidth
                       label="Full Name"
-                      name="full_name"
                       value={formData.full_name}
-                      onChange={handleInputChange}
+            onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+            margin="normal"
+            required
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                  <PersonIcon />
                           </InputAdornment>
                         ),
                       }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <FormControl fullWidth>
-                      <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Role</InputLabel>
+          />
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Role</InputLabel>
                       <Select
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+              label="Role"
                         required
-                        name="role"
-                        value={formData.role}
-                        onChange={handleInputChange}
-                        startAdornment={
-                          <InputAdornment position="start">
-                            <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        }
-                        sx={{
-                          color: 'white',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                          '& .MuiSvgIcon-root': {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                          }
-                        }}
-                      >
-                        <MenuItem value="HR">HR</MenuItem>
+            >
+              <MenuItem value="admin">Admin</MenuItem>
+              <MenuItem value="hr">HR</MenuItem>
                         <MenuItem value="employee">Employee</MenuItem>
                       </Select>
                     </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      required
-                      fullWidth
-                      label="Password"
-                      name="password"
-                      type="password"
-                      value={formData.password}
-                      onChange={handleInputChange}
-                      error={!!formErrors.password}
-                      helperText={formErrors.password}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: formErrors.password ? 'error.main' : 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        '& .MuiFormHelperText-root': {
-                          color: 'error.main',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
                       label="Employee ID"
-                      name="employee_id"
                       value={formData.employee_id}
-                      onChange={handleInputChange}
+            onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
+            margin="normal"
+            required
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <BadgeIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                  <BadgeIcon />
                           </InputAdornment>
                         ),
                       }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
+          />
                     <TextField
                       fullWidth
                       label="First Name"
-                      name="first_name"
                       value={formData.first_name}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
+            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+            margin="normal"
+            required
+          />
                     <TextField
                       fullWidth
                       label="Last Name"
-                      name="last_name"
                       value={formData.last_name}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Phone"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PhoneIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <FormControl fullWidth>
-                      <InputLabel 
-                        id="department-label"
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          '&.Mui-focused': {
-                            color: 'rgba(255, 255, 255, 0.9)',
-                          },
-                        }}
-                      >
-                        Department
-                      </InputLabel>
+            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+            margin="normal"
+            required
+          />
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Department</InputLabel>
                       <Select
-                        labelId="department-label"
-                        name="department"
                         value={formData.department}
-                        onChange={handleInputChange}
+              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                         label="Department"
-                        startAdornment={
-                          <InputAdornment position="start">
-                            <BusinessIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        }
-                        sx={{
-                          color: 'white',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                          '& .MuiSvgIcon-root': {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                          },
-                        }}
+              required
                       >
                         {departments.map((dept) => (
                           <MenuItem key={dept} value={dept}>
@@ -813,211 +445,216 @@ const UserManagement = () => {
                         ))}
                       </Select>
                     </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <FormControl fullWidth>
-                      <InputLabel 
-                        id="position-label"
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          '&.Mui-focused': {
-                            color: 'rgba(255, 255, 255, 0.9)',
-                          },
-                        }}
-                      >
-                        Position
-                      </InputLabel>
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Position</InputLabel>
                       <Select
-                        labelId="position-label"
-                        name="position"
                         value={formData.position}
-                        onChange={handleInputChange}
+              onChange={(e) => setFormData({ ...formData, position: e.target.value })}
                         label="Position"
+              required
                         disabled={!formData.department}
-                        startAdornment={
-                          <InputAdornment position="start">
-                            <WorkIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        }
-                        sx={{
-                          color: 'white',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                          '& .MuiSvgIcon-root': {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                          },
-                        }}
-                      >
-                        {availablePositions.map((pos) => (
+            >
+              {formData.department &&
+                positions[formData.department].map((pos) => (
                           <MenuItem key={pos} value={pos}>
                             {pos}
                           </MenuItem>
                         ))}
                       </Select>
                     </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
+          {!isEdit && (
                     <TextField
                       fullWidth
-                      label="Hire Date"
-                      name="hire_date"
-                      type="date"
-                      value={formData.hire_date}
-                      onChange={handleInputChange}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <EventIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      InputLabelProps={{
-                        shrink: true,
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          color: 'white',
-                          '& fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.4)',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                          },
-                        },
-                        '& .MuiInputLabel-root': {
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                </Grid>
+              label="Password"
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              margin="normal"
+              required
+            />
+          )}
               </Box>
             </DialogContent>
-            <DialogActions sx={{ 
-              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-              p: 2
-            }}>
+      <DialogActions>
+        <Button onClick={() => isEdit ? setShowEditModal(false) : setShowAddModal(false)}>Cancel</Button>
+        <Button onClick={handleSubmit} variant="contained" color="primary">
+          {isEdit ? 'Save Changes' : 'Add User'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  return (
+    <Box sx={{ 
+      minHeight: '100vh',
+      py: 4,
+      background: 'linear-gradient(135deg, #1a237e 0%, #283593 100%)'
+    }}>
+      <Container>
+        {/* Header with breadcrumbs */}
+        <Box sx={{ mb: 4 }}>
+          <Breadcrumbs 
+            separator={<NavigateNextIcon fontSize="small" sx={{ color: 'white' }} />}
+            aria-label="breadcrumb"
+            sx={{ color: 'white', mb: 2 }}
+          >
+            <RouterLink 
+              to="/dashboard" 
+              style={{ color: 'white', textDecoration: 'none' }}
+            >
+              Dashboard
+            </RouterLink>
+            <Typography color="white">User Management</Typography>
+          </Breadcrumbs>
+          
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center' 
+          }}>
+            <Typography variant="h4" sx={{ color: 'white', fontWeight: 'bold' }}>
+              User Management
+            </Typography>
+            <Box>
               <Button
-                onClick={() => setShowForm(false)}
+                variant="outlined"
+                onClick={() => navigate('/dashboard')}
+                startIcon={<ArrowBackIcon />}
                 sx={{
-                  color: 'rgba(255, 255, 255, 0.7)',
+                  color: 'white', 
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  mr: 2,
                   '&:hover': {
-                    background: 'rgba(255, 255, 255, 0.1)',
+                    borderColor: 'white',
                   },
                 }}
               >
-                Cancel
+                Back to Dashboard
               </Button>
               <Button
-                type="submit"
-                onClick={handleSubmit}
                 variant="contained"
+                color="primary"
+                startIcon={<PersonIcon />}
+                onClick={handleAdd}
                 sx={{
-                  background: 'rgba(255, 255, 255, 0.2)',
+                  bgcolor: 'rgba(255, 255, 255, 0.1)',
                   '&:hover': {
-                    background: 'rgba(255, 255, 255, 0.3)',
+                    bgcolor: 'rgba(255, 255, 255, 0.2)',
                   },
                 }}
               >
-                {editingUserId ? 'Update' : 'Add'} User
+                Add New User
               </Button>
-            </DialogActions>
-          </Dialog>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Success and error messages */}
+        {success && (
+          <Alert 
+            severity="success" 
+            sx={{ mb: 2, bgcolor: 'rgba(76, 175, 80, 0.1)', color: 'white' }}
+            onClose={() => setSuccess(null)}
+          >
+            {success}
+          </Alert>
+        )}
+        
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ mb: 2, bgcolor: 'rgba(244, 67, 54, 0.1)', color: 'white' }}
+            onClose={() => setError(null)}
+          >
+            {error}
+          </Alert>
         )}
 
-        <Grid container spacing={3}>
+        {/* Users table */}
+        <TableContainer 
+          component={Paper} 
+          sx={{ 
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: 2,
+          }}
+        >
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ color: 'white' }}>Employee ID</TableCell>
+                <TableCell sx={{ color: 'white' }}>Name</TableCell>
+                <TableCell sx={{ color: 'white' }}>Email</TableCell>
+                <TableCell sx={{ color: 'white' }}>Department</TableCell>
+                <TableCell sx={{ color: 'white' }}>Position</TableCell>
+                <TableCell sx={{ color: 'white' }}>Role</TableCell>
+                <TableCell sx={{ color: 'white' }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
           {users.map((user) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={user.id}>
-              <StyledCard>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Avatar
+                <TableRow 
+                  key={user.id}
+                  sx={{ 
+                    '&:nth-of-type(odd)': { 
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)' 
+                    },
+                    '&:hover': { 
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)' 
+                    }
+                  }}
+                >
+                  <TableCell sx={{ color: 'white' }}>{user.employee_id}</TableCell>
+                  <TableCell sx={{ color: 'white' }}>{user.full_name}</TableCell>
+                  <TableCell sx={{ color: 'white' }}>{user.email}</TableCell>
+                  <TableCell sx={{ color: 'white' }}>{user.department}</TableCell>
+                  <TableCell sx={{ color: 'white' }}>{user.position}</TableCell>
+                  <TableCell>
+                    <Chip
+                      icon={user.role === 'admin' ? <AdminIcon /> : <EmployeeIcon />}
+                      label={user.role.toUpperCase()}
+                      color={
+                        user.role === 'admin' ? 'error' :
+                        user.role === 'hr' ? 'warning' :
+                        'success'
+                      }
+                      size="small"
                       sx={{
-                        bgcolor: 'primary.main',
-                        width: 40,
-                        height: 40,
-                        mr: 2,
+                        bgcolor: 'rgba(255, 255, 255, 0.1)',
+                        '& .MuiChip-label': { color: 'white' }
                       }}
-                    >
-                      {user.first_name?.[0]}{user.last_name?.[0]}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h6" component="div" sx={{ color: 'white' }}>
-                        {user.first_name} {user.last_name}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                        ID: {user.employee_id}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <EmailIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        {user.email}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PhoneIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        {user.phone}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <BusinessIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        {user.department}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <WorkIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        {user.position}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <EventIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', mr: 1 }} />
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Hired: {new Date(user.hire_date).toLocaleDateString()}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
-                <CardActions sx={{ justifyContent: 'flex-end', p: 2, mt: 'auto' }}>
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title="Edit">
                   <IconButton
+                        color="primary"
                     onClick={() => handleEdit(user)}
-                    sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
-                    title="Edit User"
+                        size="small"
+                        sx={{ color: 'white' }}
                   >
                     <EditIcon />
                   </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
                   <IconButton
+                        color="error"
                     onClick={() => handleDelete(user.id)}
-                    sx={{ color: 'rgba(255, 99, 71, 0.7)' }}
-                    title="Delete User"
+                        size="small"
+                        sx={{ color: 'white' }}
                   >
                     <DeleteIcon />
                   </IconButton>
-                </CardActions>
-              </StyledCard>
-            </Grid>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
           ))}
-        </Grid>
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        {renderModal(false)}
+        {renderModal(true)}
       </Container>
     </Box>
   );

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -68,6 +68,18 @@ const Login = () => {
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('userRole', response.data.role.toLowerCase());
       localStorage.setItem('userId', response.data.user_id);
+
+      // Fetch and store complete user data
+      const userResponse = await axios.get(`${API_BASE_URL}/users/${response.data.user_id}`, {
+        headers: { Authorization: `Bearer ${response.data.access_token}` }
+      });
+      
+      // Store complete user data
+      localStorage.setItem('user', JSON.stringify({
+        ...userResponse.data,
+        id: response.data.user_id,
+        role: response.data.role.toLowerCase()
+      }));
 
       console.log('Stored role:', response.data.role.toLowerCase());
       console.log('Stored token:', response.data.access_token);
@@ -234,9 +246,9 @@ const Login = () => {
             />
 
             <Button
+              type="submit"
               fullWidth
               variant="contained"
-              type="submit"
               disabled={loading}
               sx={{
                 py: 1.5,
